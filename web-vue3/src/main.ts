@@ -66,7 +66,15 @@ if (import.meta.env.PROD && 'serviceWorker' in navigator) {
       })
   })
   let swReloading = false
+  // A first-time service worker takes control with controllerchange too. Do not
+  // reload a page while someone is filling the login/register form; only an
+  // existing worker being replaced needs an immediate refresh.
+  let hadControllerBeforeChange = navigator.serviceWorker.controller !== null
   navigator.serviceWorker.addEventListener('controllerchange', () => {
+    if (!hadControllerBeforeChange) {
+      hadControllerBeforeChange = true
+      return
+    }
     if (swReloading) return
     swReloading = true
     window.location.reload()
