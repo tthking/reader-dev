@@ -18,19 +18,28 @@ on:
       - 'deploy/reader-pro/requirements-camoufox.lock'
       - 'scripts/smoke-local-webview.py'
       - 'src/main/java/com/htmake/reader/api/YueduApi.kt'
+      - 'src/main/java/com/htmake/reader/api/controller/SourceLoginController.kt'
       - 'src/main/java/com/htmake/reader/config/AppConfig.kt'
+      - 'src/main/java/com/htmake/reader/utils/BrowserCookieJar.kt'
       - 'src/main/java/com/htmake/reader/utils/BrowserEgressProxy.kt'
       - 'src/main/java/com/htmake/reader/utils/BrowserNetworkPolicy.kt'
       - 'src/main/java/com/htmake/reader/utils/BrowserUpstreamProxy.kt'
       - 'src/main/java/com/htmake/reader/utils/CamoufoxWebviewRenderer.kt'
       - 'src/main/java/com/htmake/reader/utils/LocalWebviewRenderer.kt'
       - 'src/main/java/com/htmake/reader/utils/WebviewRenderer.kt'
+      - 'src/main/java/io/legado/app/model/analyzeRule/AnalyzeUrl.kt'
       - 'src/main/resources/camoufox/worker.py'
       - 'src/test/java/com/htmake/reader/utils/BrowserEgressProxyTest.kt'
+      - 'src/test/java/com/htmake/reader/utils/BrowserCookieJarTest.kt'
+      - 'src/test/java/com/htmake/reader/utils/WebviewCookieCompatibilityTest.kt'
       - 'src/test/java/com/htmake/reader/utils/BrowserUpstreamProxyTest.kt'
       - 'src/test/java/com/htmake/reader/utils/CamoufoxWebviewRendererTest.kt'
+      - 'src/test/java/com/htmake/reader/utils/CamoufoxWebviewRendererOutputLimitTest.kt'
       - 'src/test/java/com/htmake/reader/utils/LocalWebviewRendererGuardTest.kt'
       - 'src/test/java/com/htmake/reader/utils/LocalWebviewRendererTest.kt'
+      - 'src/test/java/com/htmake/reader/api/controller/SourceLoginSecurityTest.kt'
+      - 'src/test/java/io/legado/app/model/analyzeRule/**'
+      - 'src/test/python/camoufox_worker_test.py'
   pull_request:
     branches: [legacy]
     paths:
@@ -48,19 +57,28 @@ on:
       - 'deploy/reader-pro/requirements-camoufox.lock'
       - 'scripts/smoke-local-webview.py'
       - 'src/main/java/com/htmake/reader/api/YueduApi.kt'
+      - 'src/main/java/com/htmake/reader/api/controller/SourceLoginController.kt'
       - 'src/main/java/com/htmake/reader/config/AppConfig.kt'
+      - 'src/main/java/com/htmake/reader/utils/BrowserCookieJar.kt'
       - 'src/main/java/com/htmake/reader/utils/BrowserEgressProxy.kt'
       - 'src/main/java/com/htmake/reader/utils/BrowserNetworkPolicy.kt'
       - 'src/main/java/com/htmake/reader/utils/BrowserUpstreamProxy.kt'
       - 'src/main/java/com/htmake/reader/utils/CamoufoxWebviewRenderer.kt'
       - 'src/main/java/com/htmake/reader/utils/LocalWebviewRenderer.kt'
       - 'src/main/java/com/htmake/reader/utils/WebviewRenderer.kt'
+      - 'src/main/java/io/legado/app/model/analyzeRule/AnalyzeUrl.kt'
       - 'src/main/resources/camoufox/worker.py'
       - 'src/test/java/com/htmake/reader/utils/BrowserEgressProxyTest.kt'
+      - 'src/test/java/com/htmake/reader/utils/BrowserCookieJarTest.kt'
+      - 'src/test/java/com/htmake/reader/utils/WebviewCookieCompatibilityTest.kt'
       - 'src/test/java/com/htmake/reader/utils/BrowserUpstreamProxyTest.kt'
       - 'src/test/java/com/htmake/reader/utils/CamoufoxWebviewRendererTest.kt'
+      - 'src/test/java/com/htmake/reader/utils/CamoufoxWebviewRendererOutputLimitTest.kt'
       - 'src/test/java/com/htmake/reader/utils/LocalWebviewRendererGuardTest.kt'
       - 'src/test/java/com/htmake/reader/utils/LocalWebviewRendererTest.kt'
+      - 'src/test/java/com/htmake/reader/api/controller/SourceLoginSecurityTest.kt'
+      - 'src/test/java/io/legado/app/model/analyzeRule/**'
+      - 'src/test/python/camoufox_worker_test.py'
   workflow_dispatch:
 
 permissions:
@@ -95,6 +113,7 @@ jobs:
           cache-dependency-path: web-vue3/package-lock.json
       - name: Test and build the full JAR
         run: |
+          python3 -m unittest discover -s src/test/python -p 'camoufox_worker_test.py'
           npm ci --prefix web-vue3
           npm run build --prefix web-vue3
           npm test --prefix web-vue3
@@ -168,7 +187,10 @@ jobs:
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/reader-browser-data"
           chmod 777 "$RUNNER_TEMP/reader-browser-data"
+          # Exercise the browser under a finite budget close to the 4 GiB
+          # production host, rather than only on an unconstrained runner.
           docker run -d --name reader-browser-smoke --network host --shm-size=1g \
+            --memory=2g --memory-swap=3g --pids-limit=256 --cpus=2 \
             --security-opt no-new-privileges:true --cap-drop ALL \
             --tmpfs /tmp:size=256m,mode=1777 \
             -v "$RUNNER_TEMP/reader-browser-data:/storage" \
@@ -189,5 +211,7 @@ jobs:
         if: always()
         shell: bash
         run: |
+          docker stats --no-stream --format 'name={{.Name}} memory={{.MemUsage}} pids={{.PIDs}}' reader-browser-smoke || true
+          docker exec reader-browser-smoke sh -c 'test ! -r /sys/fs/cgroup/memory.peak || cat /sys/fs/cgroup/memory.peak' || true
           docker logs --tail=200 reader-browser-smoke || true
           docker rm -f reader-browser-smoke || true

@@ -5,6 +5,7 @@ import json
 import re
 import sys
 import time
+from email.utils import parsedate_to_datetime
 from urllib.parse import urlsplit
 
 # Stdout is a machine protocol. Keep all package/browser diagnostics on stderr.
@@ -14,11 +15,279 @@ with contextlib.redirect_stdout(sys.stderr):
     from camoufox import Camoufox, DefaultAddons, NewContext
 
 
+# Both values are byte limits, rather than character limits: Reader's parent
+# protocol is UTF-8 and a page can otherwise expand several-fold at serialization.
+MAX_BODY_UTF8_BYTES = 4 * 1024 * 1024
+MAX_PROTOCOL_UTF8_BYTES = 8 * 1024 * 1024
+MAX_COOKIES = 128
+MAX_COOKIE_NAME_UTF8_BYTES = 256
+MAX_COOKIE_VALUE_UTF8_BYTES = 8 * 1024
+MAX_COOKIE_DOMAIN_UTF8_BYTES = 253
+MAX_COOKIE_PATH_UTF8_BYTES = 2 * 1024
+MAX_COOKIE_SAMESITE_UTF8_BYTES = 16
+
+
+class ResponseBodyTooLarge(Exception):
+    pass
+
+
+class CookieLimitExceeded(Exception):
+    pass
+
+
+class ResponseTooLarge(Exception):
+    pass
+
+
+def utf8_length_at_most(value, maximum):
+    """Count UTF-8 bytes without allocating a second full copy of an untrusted body."""
+    if not isinstance(value, str):
+        value = str(value)
+    total = 0
+    for start in range(0, len(value), 4096):
+        total += len(value[start:start + 4096].encode("utf-8"))
+        if total > maximum:
+            return False
+    return True
+
+
+def require_utf8_limit(value, maximum, error_type):
+    if not utf8_length_at_most(value, maximum):
+        raise error_type()
+
+
+def bounded_cookie(cookie):
+    """Validate a portable cookie record before it enters either browser or stdout state."""
+    if not isinstance(cookie, dict):
+        raise CookieLimitExceeded()
+    for key, maximum in (
+        ("name", MAX_COOKIE_NAME_UTF8_BYTES),
+        ("value", MAX_COOKIE_VALUE_UTF8_BYTES),
+        ("domain", MAX_COOKIE_DOMAIN_UTF8_BYTES),
+        ("path", MAX_COOKIE_PATH_UTF8_BYTES),
+        ("sameSite", MAX_COOKIE_SAMESITE_UTF8_BYTES),
+    ):
+        value = cookie.get(key)
+        if value is not None:
+            require_utf8_limit(value, maximum, CookieLimitExceeded)
+    return cookie
+
+
+def normalized_domain(value):
+    """Return a safe cookie domain without the optional leading dot."""
+    value = (value or "").strip().lstrip(".").rstrip(".").lower()
+    if not value or any(character.isspace() or character in "/;" for character in value):
+        return None
+    return value
+
+
+def default_cookie_path(response_path):
+    if not response_path or not response_path.startswith("/") or response_path.count("/") <= 1:
+        return "/"
+    return response_path.rsplit("/", 1)[0] or "/"
+
+
+def domain_matches(host, domain):
+    return host == domain or host.endswith("." + domain)
+
+
+def same_origin(left, right):
+    return (
+        left.scheme.lower() == right.scheme.lower()
+        and (left.hostname or "").lower() == (right.hostname or "").lower()
+        and left.port == right.port
+    )
+
+
+def parse_set_cookie(raw_header, response_url):
+    """Parse one response Set-Cookie into the portable Reader cookie record.
+
+    The worker must retain attributes here because parent-side persistence is
+    intentionally independent of the transient Firefox profile. This is a
+    deliberately small RFC 6265 parser: unknown attributes are ignored, while
+    invalid Domain values fail closed instead of becoming a host-only cookie.
+    """
+    # Header parsing is a fallback for a known Camoufox snapshot race. It must
+    # not become an unbounded alternate cookie parser.
+    if not utf8_length_at_most(raw_header, MAX_COOKIE_VALUE_UTF8_BYTES + MAX_COOKIE_PATH_UTF8_BYTES + 4096):
+        return None
+    pieces = raw_header.split(";")
+    pair = pieces[0].strip() if pieces else ""
+    name, separator, value = pair.partition("=")
+    name = name.strip()
+    if not separator or not name or any(character.isspace() or character in ";=" for character in name):
+        return None
+    origin = urlsplit(response_url)
+    host = normalized_domain(origin.hostname)
+    if not host:
+        return None
+    attributes = {}
+    flags = set()
+    for piece in pieces[1:]:
+        key, has_value, attribute_value = piece.strip().partition("=")
+        key = key.strip().lower()
+        if not key:
+            continue
+        if has_value:
+            attributes[key] = attribute_value.strip()
+        else:
+            flags.add(key)
+
+    requested_domain = attributes.get("domain")
+    host_only = not bool(requested_domain)
+    domain = host if host_only else normalized_domain(requested_domain)
+    if not domain or (not host_only and not domain_matches(host, domain)):
+        return None
+    path = attributes.get("path") or default_cookie_path(origin.path)
+    if not path.startswith("/"):
+        path = default_cookie_path(origin.path)
+
+    expires = -1.0
+    deleted = False
+    max_age = attributes.get("max-age")
+    max_age_seconds = None
+    if max_age is not None:
+        try:
+            max_age_seconds = int(max_age)
+            if max_age_seconds <= 0:
+                deleted = True
+            else:
+                expires = time.time() + max_age_seconds
+        except ValueError:
+            # RFC 6265: an invalid Max-Age is ignored, so a valid Expires still
+            # controls the record rather than accidentally creating a session.
+            max_age_seconds = None
+    if max_age_seconds is None and attributes.get("expires"):
+        try:
+            expires = parsedate_to_datetime(attributes["expires"]).timestamp()
+            deleted = expires <= time.time()
+        except (TypeError, ValueError, OverflowError):
+            pass
+    same_site = attributes.get("samesite", "").lower()
+    same_site = {"lax": "Lax", "strict": "Strict", "none": "None"}.get(same_site)
+    secure = "secure" in flags
+    # A Secure attribute on an HTTP response is ignored by browsers. The raw
+    # fallback must not persist a cookie the real browser would reject.
+    if secure and origin.scheme.lower() != "https":
+        return None
+    if name.startswith("__Secure-") and (not secure or origin.scheme.lower() != "https"):
+        return None
+    if name.startswith("__Host-") and (
+        not secure or origin.scheme.lower() != "https" or not host_only or path != "/"
+    ):
+        return None
+    return bounded_cookie({
+        "name": name,
+        "value": value.strip(),
+        "domain": domain,
+        "path": path,
+        "hostOnly": host_only,
+        "secure": secure,
+        "httpOnly": "httponly" in flags,
+        "sameSite": same_site,
+        "expires": expires,
+        # `flag=` is a valid empty-valued cookie. Deletion is an explicit expiry
+        # operation, never an inference from the value.
+        "deleted": deleted,
+    })
+
+
+def cookie_identity(cookie):
+    return "\0".join((cookie["name"], cookie["domain"], cookie["path"]))
+
+
+def request_matches_cookie(cookie, request_url):
+    request = urlsplit(request_url)
+    host = normalized_domain(request.hostname)
+    if not host or cookie.get("deleted"):
+        return False
+    expires = cookie.get("expires", -1)
+    if expires is not None and expires >= 0 and expires <= time.time():
+        return False
+    if cookie.get("secure") and request.scheme.lower() != "https":
+        return False
+    if cookie.get("hostOnly", True):
+        if cookie.get("domain") != host:
+            return False
+    elif not domain_matches(host, cookie.get("domain", "")):
+        return False
+    path = request.path or "/"
+    cookie_path = cookie.get("path") or "/"
+    return path == cookie_path or (
+        path.startswith(cookie_path)
+        and (cookie_path.endswith("/") or path[len(cookie_path):].startswith("/"))
+    )
+
+
+def as_playwright_cookie(cookie, request_url):
+    """Convert a Reader record without losing host-only semantics on import."""
+    path = cookie["path"] or "/"
+    result = {
+        "name": cookie["name"],
+        "value": cookie["value"],
+        "secure": bool(cookie.get("secure")),
+        "httpOnly": bool(cookie.get("httpOnly")),
+    }
+    if cookie.get("expires", -1) >= 0:
+        result["expires"] = cookie["expires"]
+    if cookie.get("sameSite"):
+        result["sameSite"] = cookie["sameSite"]
+    if cookie.get("hostOnly", True):
+        # Playwright uses url cookies to create host-only records. A secure cookie
+        # needs an HTTPS URL even if this page currently arrived over HTTP.
+        scheme = "https" if cookie.get("secure") else urlsplit(request_url).scheme.lower()
+        result["url"] = "%s://%s%s" % (scheme, cookie["domain"], path)
+    else:
+        result["domain"] = "." + cookie["domain"]
+        result["path"] = path
+    return result
+
+
+def portable_snapshot_cookie(item, document_origin, response_cookies, request_cookie_metadata):
+    """Turn one Playwright snapshot entry into the Reader record without widening scope."""
+    raw_domain = item.get("domain") or ""
+    domain = normalized_domain(raw_domain)
+    document_host = normalized_domain(document_origin.hostname)
+    if not domain or not document_host or not domain_matches(document_host, domain):
+        return None
+    identity = "\0".join((item.get("name", ""), domain, item.get("path") or "/"))
+    remembered = response_cookies.get(identity) or request_cookie_metadata.get(identity)
+    return bounded_cookie({
+        "name": item.get("name", ""),
+        "value": item.get("value", ""),
+        "domain": domain,
+        "path": item.get("path") or "/",
+        # response metadata; Playwright encodes Domain cookies with a leading
+        # dot, which is the only reliable fallback signal when no response
+        # header metadata was observed.
+        "hostOnly": remembered.get("hostOnly", True) if remembered else not raw_domain.startswith("."),
+        "secure": bool(item.get("secure")),
+        "httpOnly": bool(item.get("httpOnly")),
+        "sameSite": item.get("sameSite") or None,
+        "expires": item.get("expires", -1),
+        "deleted": False,
+    })
+
+
+def cookie_changed_from_initial(cookie, initial_cookies, response_seen):
+    """Only return browser state that can safely change Reader's persistent jar."""
+    identity = cookie_identity(cookie)
+    if identity in response_seen:
+        # A response explicitly touched this identity. The browser snapshot is the
+        # authority for Domain-cookie acceptance; returning it preserves a genuine
+        # same-value refresh without re-persisting unrelated imported cookies.
+        return True
+    return initial_cookies.get(identity) != cookie
+
+
 def render(payload):
     url = payload["url"]
     timeout_ms = int(payload["timeoutMs"])
     source_pattern = re.compile(payload["sourceRegex"]) if payload.get("sourceRegex") else None
     state = {"matched_url": None, "post_sent": False, "blocked": False}
+    document_origin = urlsplit(url)
+    response_cookies = {}
+    response_seen = set()
     proxy = {
         "server": payload["proxy"],
         # Playwright's special value removes Firefox's implicit loopback bypass.
@@ -57,12 +326,57 @@ def render(payload):
                 context.set_default_navigation_timeout(timeout_ms)
                 if payload.get("headers"):
                     context.set_extra_http_headers(payload["headers"])
-                cookies = payload.get("cookies") or {}
+                cookies = payload.get("cookies") or []
+                if len(cookies) > MAX_COOKIES:
+                    raise CookieLimitExceeded()
+                cookies = [bounded_cookie(cookie) for cookie in cookies]
+                request_cookie_metadata = {
+                    cookie_identity(cookie): cookie
+                    for cookie in cookies
+                    if request_matches_cookie(cookie, url)
+                }
+                # This is a complete pre-render baseline, including cookies derived
+                # from an explicit Cookie request header. Such headers are a
+                # one-request override and must never become durable merely because
+                # Firefox reports the imported cookie in its final snapshot.
+                initial_cookies = dict(request_cookie_metadata)
                 if cookies:
                     context.add_cookies([
-                        {"name": name, "value": value, "url": url}
-                        for name, value in cookies.items()
+                        as_playwright_cookie(cookie, url)
+                        for cookie in cookies
+                        if request_matches_cookie(cookie, url)
                     ])
+
+                def remember_response_cookies(response):
+                    """Keep a structured same-origin fallback for Camoufox snapshots."""
+                    response_origin = urlsplit(response.url)
+                    if not same_origin(response_origin, document_origin):
+                        return
+                    try:
+                        for set_cookie in response.header_values("set-cookie"):
+                            parsed = parse_set_cookie(set_cookie, response.url)
+                            if parsed:
+                                response_seen.add(cookie_identity(parsed))
+                            # Domain cookies require a public-suffix and browser
+                            # acceptance decision. Do not emulate that security
+                            # boundary in a fallback parser: context.cookies() is
+                            # authoritative for them. Host-only records can safely
+                            # bridge a Camoufox snapshot race (notably HttpOnly).
+                            # A real browser snapshot is authoritative for Domain
+                            # cookie creation (including public-suffix checks). A
+                            # deletion, however, must cross the snapshot race so it
+                            # can revoke a previously persisted same-domain record.
+                            if parsed and (parsed["hostOnly"] or parsed["deleted"]):
+                                if len(response_cookies) >= MAX_COOKIES and cookie_identity(parsed) not in response_cookies:
+                                    raise CookieLimitExceeded()
+                                response_cookies[cookie_identity(parsed)] = parsed
+                    except Exception:
+                        # Header access is advisory. The browser cookie snapshot remains
+                        # the primary source and a response must not fail because a server
+                        # returned an unusual header representation.
+                        return
+
+                context.on("response", remember_response_cookies)
 
                 def route_request(route):
                     route_url = route.request.url
@@ -117,17 +431,37 @@ def render(payload):
                         "return value == null ? '' : value.toString(); }",
                         source,
                     )
-                    body = value or ""
+                    body = str(value or "")
                 else:
                     body = page.content()
 
-                cookie_values = [
-                    {"name": item["name"], "value": item["value"]}
-                    for item in context.cookies(url)
-                ]
+                require_utf8_limit(body, MAX_BODY_UTF8_BYTES, ResponseBodyTooLarge)
+
+                # Firefox normally exposes a complete snapshot. For a Linux
+                # Camoufox release which omits a just-received HttpOnly cookie,
+                # structured Set-Cookie records above are merged after the snapshot.
+                # The fallback is same-origin only and includes expiry/deletion.
+                cookie_values = {}
+                for item in context.cookies():
+                    cookie = portable_snapshot_cookie(
+                        item, document_origin, response_cookies, request_cookie_metadata
+                    )
+                    if not cookie:
+                        continue
+                    if not cookie_changed_from_initial(cookie, initial_cookies, response_seen):
+                        continue
+                    if len(cookie_values) >= MAX_COOKIES and cookie_identity(cookie) not in cookie_values:
+                        raise CookieLimitExceeded()
+                    cookie_values[cookie_identity(cookie)] = cookie
+                cookie_values.update(response_cookies)
+                if len(cookie_values) > MAX_COOKIES:
+                    raise CookieLimitExceeded()
                 if state["blocked"]:
                     return {"error": "BlockedScheme"}
-                return {"body": body, "cookies": cookie_values}
+                return {
+                    "body": body,
+                    "cookies": list(cookie_values.values()),
+                }
             finally:
                 context.close()
 
@@ -142,7 +476,11 @@ def main():
             # Return only the exception class; URLs, headers, and proxy credentials
             # can be present in Playwright exception text and must not be logged here.
             response = {"error": type(error).__name__}
-        protocol_out.write(json.dumps(response, ensure_ascii=False, separators=(",", ":")) + "\n")
+        encoded = json.dumps(response, ensure_ascii=False, separators=(",", ":"))
+        if not utf8_length_at_most(encoded, MAX_PROTOCOL_UTF8_BYTES - 1):
+            # Do not emit a partial JSON record or a huge response in diagnostics.
+            encoded = '{"error":"ResponseTooLarge"}'
+        protocol_out.write(encoded + "\n")
         protocol_out.flush()
 
 

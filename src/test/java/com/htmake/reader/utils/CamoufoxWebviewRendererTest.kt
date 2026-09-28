@@ -4,6 +4,7 @@ import com.sun.net.httpserver.HttpServer
 import io.legado.app.adapters.DefaultAdpater
 import io.legado.app.adapters.ReaderAdapterHelper
 import io.legado.app.adapters.ReaderAdapterInterface
+import io.legado.app.help.http.CookieStore
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -108,6 +109,9 @@ class CamoufoxWebviewRendererTest {
     @Test
     fun cookiesArePersistedPerReaderNamespace() = runBlocking {
         renderer.render(request("/seed", "alice"))
+        val aliceJar = BrowserCookieJar.storedCookies(CookieStore("alice"))
+        assertEquals("alpha==", aliceJar.single { it.name == "session" }.value)
+        assertTrue(BrowserCookieJar.storedCookies(CookieStore("bob")).isEmpty())
         val alice = renderer.render(request("/echo", "alice"))
         val bob = renderer.render(request("/echo", "bob"))
         assertTrue(alice.body?.contains("session=alpha==") == true)

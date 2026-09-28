@@ -7,6 +7,8 @@ import io.legado.app.utils.NetworkUtils
 import kotlinx.coroutines.asCoroutineDispatcher
 import kotlinx.coroutines.withContext
 import java.io.OutputStreamWriter
+import java.io.ByteArrayOutputStream
+import java.io.InputStream
 import java.nio.charset.Charset
 import java.nio.charset.StandardCharsets
 import java.nio.file.Files
@@ -14,6 +16,7 @@ import java.nio.file.Path
 import java.nio.file.attribute.PosixFilePermissions
 import java.util.concurrent.Callable
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.ExecutionException
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
@@ -30,7 +33,9 @@ class CamoufoxWebviewRenderer(
     private val browserVersion: String = "152.0.4-beta.30",
     private val timeoutMs: Int = 20_000,
     allowPrivateNetworks: Boolean = System.getenv("READER_BROWSER_ALLOW_PRIVATE_NETWORKS")
-        ?.equals("true", ignoreCase = true) == true
+        ?.equals("true", ignoreCase = true) == true,
+    /** Test-only escape hatch for exercising the parent/worker protocol without Camoufox. */
+    private val workerScriptOverride: Path? = null
 ) : WebviewRenderer {
     private val pending = AtomicInteger(0)
     private val worker = Executors.newSingleThreadExecutor { task ->
@@ -73,11 +78,19 @@ class CamoufoxWebviewRenderer(
         try {
             val proxyEndpoint = egressProxy.start()
             val headers = request.headerMap ?: emptyMap()
-            val domain = NetworkUtils.getSubDomain(url)
             val cookieStore = CookieStore(request.userNameSpace)
-            val cookies = cookieStore.cookieToMap(cookieStore.getCookie(domain))
-            headers.entries.firstOrNull { it.key.equals("Cookie", ignoreCase = true) }
-                ?.value?.let { cookies.putAll(cookieStore.cookieToMap(it)) }
+            val requestCookieHeader = headers.entries.firstOrNull { it.key.equals("Cookie", ignoreCase = true) }
+                ?.value.orEmpty()
+            val legacyScope = NetworkUtils.getSubDomain(url)
+            val cookies = BrowserCookieJar.cookiesForBrowserRequest(
+                cookieStore,
+                url,
+                // This key is written only by the legacy enabledCookieJar flow.
+                // It is migrated once into structured host-only records before the
+                // browser request; it is never treated as a response cookie again.
+                legacyCookieHeader = cookieStore.getCookie("${legacyScope}_cookieJar"),
+                explicitCookieHeader = requestCookieHeader
+            )
 
             val payload = linkedMapOf<String, Any?>(
                 "url" to url,
@@ -104,11 +117,10 @@ class CamoufoxWebviewRenderer(
                 throw BrowserNetworkPolicyViolation("Camoufox 渲染触及了本机或非公网网络资源，已中止")
             }
 
-            if (domain.isNotEmpty()) {
-                val stored = response.cookies.orEmpty().joinToString(";") { "${it.name}=${it.value}" }
-                cookieStore.setCookie("${domain}_cookieJar", stored)
-                cookieStore.setCookie(domain, stored)
-            }
+            // Do not flatten browser cookies into CookieStore's legacy domain key.
+            // That format has no Path/Secure/Domain/expiry semantics and can both
+            // disclose a scoped cookie and recreate one that a response deleted.
+            BrowserCookieJar.merge(cookieStore, url, response.cookies.orEmpty().map(WorkerCookie::toStoredCookie))
             return StrResponse(url, response.body ?: "")
         } finally {
             egressProxy.close()
@@ -130,7 +142,12 @@ class CamoufoxWebviewRenderer(
         }
         processes.add(process)
         val stdout = outputReaders.submit(Callable {
-            process.inputStream.use { it.readBytes().toString(StandardCharsets.UTF_8) }
+            readBoundedWorkerOutput(process.inputStream) {
+                // Do not wait for the normal watchdog after an abusive or corrupt
+                // worker response. It can otherwise keep the single render queue
+                // occupied while descendants retain inherited stdout handles.
+                terminate(process)
+            }
         })
         try {
             OutputStreamWriter(process.outputStream, StandardCharsets.UTF_8).use { writer ->
@@ -142,7 +159,15 @@ class CamoufoxWebviewRenderer(
                 terminate(process)
                 throw IllegalStateException("Camoufox WebView 超时，浏览器进程树已终止")
             }
-            val output = stdout.get(OUTPUT_DRAIN_TIMEOUT_SECONDS, TimeUnit.SECONDS).trim()
+            val output = try {
+                stdout.get(OUTPUT_DRAIN_TIMEOUT_SECONDS, TimeUnit.SECONDS).trim()
+            } catch (e: ExecutionException) {
+                val cause = e.cause
+                if (cause is WorkerOutputLimitExceeded) {
+                    throw IllegalStateException("Camoufox Python worker 输出超过 ${MAX_WORKER_STDOUT_BYTES / MEBIBYTE} MiB 限制，浏览器进程树已终止")
+                }
+                throw IllegalStateException("Camoufox Python worker 输出读取失败", cause)
+            }
             if (process.exitValue() != 0) {
                 throw IllegalStateException("Camoufox Python worker 异常退出 (${process.exitValue()})")
             }
@@ -169,6 +194,7 @@ class CamoufoxWebviewRenderer(
     }
 
     private fun getWorkerScript(): Path {
+        workerScriptOverride?.let { return it }
         workerScript?.takeIf { Files.isRegularFile(it) }?.let { return it }
         val resource = javaClass.getResourceAsStream("/camoufox/worker.py")
             ?: throw IllegalStateException("JAR 未包含 Camoufox worker 脚本")
@@ -190,6 +216,31 @@ class CamoufoxWebviewRenderer(
         runCatching { process.waitFor(2, TimeUnit.SECONDS) }
         runCatching { process.inputStream.close() }
         runCatching { process.outputStream.close() }
+    }
+
+    /**
+     * The worker protocol is a single JSON line, but it is still an untrusted child
+     * process boundary. Never use InputStream.readBytes() here: a malformed worker
+     * could otherwise allocate until the JVM is killed before the request timeout.
+     */
+    private fun readBoundedWorkerOutput(input: InputStream, onLimit: () -> Unit): String {
+        val output = ByteArrayOutputStream(minOf(MAX_WORKER_STDOUT_BYTES, 64 * 1024))
+        val buffer = ByteArray(8 * 1024)
+        var total = 0
+        input.use { stream ->
+            while (true) {
+                val read = stream.read(buffer)
+                if (read < 0) break
+                if (read == 0) continue
+                if (read > MAX_WORKER_STDOUT_BYTES - total) {
+                    runCatching(onLimit)
+                    throw WorkerOutputLimitExceeded()
+                }
+                output.write(buffer, 0, read)
+                total += read
+            }
+        }
+        return output.toString(StandardCharsets.UTF_8)
     }
 
     private fun encodeHtmlForWebView(html: String, encode: String?): String {
@@ -215,16 +266,44 @@ class CamoufoxWebviewRenderer(
         }
     }
 
-    private data class WorkerCookie(val name: String, val value: String)
+    private data class WorkerCookie(
+        val name: String = "",
+        val value: String = "",
+        val domain: String = "",
+        val path: String = "/",
+        val hostOnly: Boolean = true,
+        val secure: Boolean = false,
+        val httpOnly: Boolean = false,
+        val sameSite: String? = null,
+        val expires: Double = -1.0,
+        val deleted: Boolean = false
+    ) {
+        fun toStoredCookie() = BrowserCookieJar.Cookie(
+            name = name,
+            value = value,
+            domain = domain,
+            path = path,
+            hostOnly = hostOnly,
+            secure = secure,
+            httpOnly = httpOnly,
+            sameSite = sameSite,
+            expires = expires,
+            deleted = deleted
+        )
+    }
     private data class WorkerResponse(
         val body: String?,
         val cookies: List<WorkerCookie>?,
         val error: String?
     )
 
+    private class WorkerOutputLimitExceeded : IllegalStateException()
+
     companion object {
         private const val MAX_PENDING_REQUESTS = 8
         private const val STARTUP_GRACE_MS = 15_000L
         private const val OUTPUT_DRAIN_TIMEOUT_SECONDS = 5L
+        private const val MEBIBYTE = 1024 * 1024
+        private const val MAX_WORKER_STDOUT_BYTES = 8 * MEBIBYTE
     }
 }

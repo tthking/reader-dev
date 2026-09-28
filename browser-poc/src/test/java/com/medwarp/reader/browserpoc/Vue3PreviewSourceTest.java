@@ -45,6 +45,10 @@ public class Vue3PreviewSourceTest {
                 page.setDefaultTimeout(30000);
                 page.navigate(previewUrl + "/login");
                 page.locator(".mode-switch button").nth(1).click();
+                assertTrue("Register tab must be selected",
+                        page.locator(".mode-switch button").nth(1).getAttribute("class").contains("active"));
+                assertEquals("Register form must show invitation field", 3,
+                        page.locator(".login-form .field").count());
                 page.locator("input[autocomplete=username]").fill("vue" +
                         UUID.randomUUID().toString().replace("-", "").substring(0, 10));
                 page.locator("input[autocomplete=current-password]").fill("SourceProbe-2026");
@@ -52,6 +56,9 @@ public class Vue3PreviewSourceTest {
                         response -> URI.create(response.url()).getPath().endsWith("/reader3/login"),
                         () -> page.locator(".submit-btn").click());
                 assertEquals("Registration HTTP status", 200, registration.status());
+                assertTrue("Registration request must not be sent as login",
+                        Pattern.compile("\\\"isLogin\\\"\\s*:\\s*false")
+                                .matcher(String.valueOf(registration.request().postData())).find());
                 String registrationBody = registration.text();
                 Matcher registrationError = Pattern.compile("\\\"errorMsg\\\"\\s*:\\s*\\\"([^\\\"]*)\\\"")
                         .matcher(registrationBody);

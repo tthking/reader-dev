@@ -1,6 +1,7 @@
 package com.htmake.reader.api.controller
 
 import com.htmake.reader.api.ReturnData
+import com.htmake.reader.utils.BrowserCookieJar
 import com.htmake.reader.utils.asJsonArray
 import com.htmake.reader.utils.getStorage
 import io.legado.app.data.entities.BookSource
@@ -14,8 +15,9 @@ import kotlin.coroutines.CoroutineContext
 /**
  * Vue 3 书源登录接口的服务端边界。
  *
- * Cookie 继续使用阅读原有的 [CookieStore]，因此普通请求、WebView 与手动登录态共用
- * 同一份按用户命名空间隔离的存储。验证码/浏览器自动登录不能在没有可用浏览器会话的
+ * 手动 Cookie 继续使用阅读原有的 [CookieStore]；浏览器 Cookie 以带 Path、Domain、
+ * Secure 与过期时间的结构化记录保存。两者均按用户命名空间隔离，并在普通请求中按目标
+ * URL 合并。验证码/浏览器自动登录不能在没有可用浏览器会话的
  * 情况下伪造成功；相应接口会返回明确的可操作错误，而不是空的成功响应。
  */
 class SourceLoginController(coroutineContext: CoroutineContext) : BaseController(coroutineContext) {
@@ -79,6 +81,7 @@ class SourceLoginController(coroutineContext: CoroutineContext) : BaseController
             // indexed/imported source that shares this authentication scope.
             store.removeCookie(scope)
             store.removeCookie(cookieJarKey)
+            BrowserCookieJar.clearCookieScope(store, scope)
             val candidates = knownSources(namespace, index)
             val affectedUrls = SourceLoginSupport.affectedSourceUrls(
                 source.bookSourceUrl,
@@ -99,6 +102,7 @@ class SourceLoginController(coroutineContext: CoroutineContext) : BaseController
             ))
         }
         store.setCookie(scope, cookie.trim())
+        BrowserCookieJar.setManualCookies(store, scope, cookie.trim())
         if (source.enabledCookieJar == true) store.setCookie(cookieJarKey, cookie.trim())
         index.put(source.bookSourceUrl, System.currentTimeMillis())
         saveCookieIndex(namespace, index)
@@ -123,13 +127,15 @@ class SourceLoginController(coroutineContext: CoroutineContext) : BaseController
         val cleanedIndex = JsonObject(index.encode())
         known.forEach { sourceUrl ->
             val cookie = store.getCookie(sourceUrl)
-            if (cookie.isBlank()) {
+            val browserCookies = BrowserCookieJar.cookiesForRequest(store, sourceUrl)
+            if (cookie.isBlank() && browserCookies.isEmpty()) {
                 cleanedIndex.remove(sourceUrl)
                 return@forEach
             }
             // Do not evaluate a source's dynamic header JS in a listing endpoint, and do
             // not return credentials. The UI only needs a non-empty safe summary/status.
-            val preview = SourceLoginSupport.redactCookie(cookie)
+            val preview = if (cookie.isNotBlank()) SourceLoginSupport.redactCookie(cookie)
+            else browserCookies.joinToString("; ") { "${it.name}=***" }.ifBlank { "已保存" }.take(256)
             rows.add(mapOf(
                 "sourceUrl" to sourceUrl,
                 // Compatibility field: intentionally a redacted preview, never the raw value.
