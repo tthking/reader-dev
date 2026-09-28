@@ -20,7 +20,7 @@ RUN rm -rf /etc/apt/sources.list.d \
     && chown reader:reader /storage /logs
 
 COPY requirements-camoufox.lock /tmp/requirements-camoufox.lock
-COPY camoufox-browser.lock install_camoufox_pinned.py /tmp/
+COPY --chown=10001:10001 camoufox-browser.lock install_camoufox_pinned.py /tmp/
 COPY --chmod=0755 docker-entrypoint.sh /usr/local/bin/reader-entrypoint
 ARG REQUIRE_WHEEL_HASHES=true
 RUN python3 -m venv /opt/reader-camoufox \
