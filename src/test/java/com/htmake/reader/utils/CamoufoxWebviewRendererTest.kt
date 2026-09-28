@@ -133,7 +133,10 @@ class CamoufoxWebviewRendererTest {
         val alice = renderer.render(request("/echo", "alice"))
         val bob = renderer.render(request("/echo", "bob"))
         assertTrue("Alice's next synthetic echo was: ${alice.body}", alice.body?.contains("session=alpha==") == true)
-        assertTrue("Bob's synthetic echo was: ${bob.body}", bob.body?.endsWith("||") == true)
+        // Firefox displays text/plain navigation inside an HTML <pre>; verify
+        // the fixture content, not the browser's presentation wrapper.
+        assertTrue("Bob's synthetic echo was: ${bob.body}", bob.body?.contains("GET|||") == true)
+        assertFalse("Bob inherited Alice's Cookie", bob.body?.contains("session=alpha==") == true)
     }
 
     @Test
