@@ -233,18 +233,12 @@ def as_playwright_cookie(cookie, request_url):
     if cookie.get("sameSite"):
         result["sameSite"] = cookie["sameSite"]
     if cookie.get("hostOnly", True):
-        # Playwright uses url cookies to create host-only records. A secure cookie
-        # needs an HTTPS URL even if this page currently arrived over HTTP.
-        # Keep the request's port, as the earlier working bridge did. Dropping a
-        # non-default port changes the URL supplied to Firefox and is not a safe
-        # interpretation of a host-only cookie's original request context.
-        origin = urlsplit(request_url)
-        scheme = "https" if cookie.get("secure") else origin.scheme.lower()
-        host = origin.hostname or cookie["domain"]
-        authority = "[%s]" % host if ":" in host else host
-        if origin.port is not None:
-            authority += ":%d" % origin.port
-        result["url"] = "%s://%s%s" % (scheme, authority, path)
+        # Playwright's URL form derives Path from the URL's *parent directory*.
+        # A persisted Path=/account would silently become / if supplied as a URL.
+        # A domain without the leading dot denotes a host-only cookie and keeps
+        # its exact Path, per the Playwright add_cookies contract.
+        result["domain"] = cookie["domain"]
+        result["path"] = path
     else:
         result["domain"] = "." + cookie["domain"]
         result["path"] = path

@@ -8,6 +8,7 @@ import io.legado.app.help.http.CookieStore
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Assume.assumeTrue
 import org.junit.Before
@@ -19,6 +20,7 @@ import java.nio.charset.StandardCharsets
 import java.nio.file.Files
 import java.nio.file.Paths
 import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.atomic.AtomicReference
 
 /**
  * End-to-end contract checks for the packaged fingerprint engine. The hosted browser-image
@@ -33,6 +35,8 @@ class CamoufoxWebviewRendererTest {
     private lateinit var originalUserDir: String
     private lateinit var originalAdapter: ReaderAdapterInterface
     private val mediaHits = AtomicInteger()
+    private val unscopedProbeHits = AtomicInteger()
+    private val unscopedProbeCookie = AtomicReference("")
 
     @Before
     fun setUp() {
@@ -69,6 +73,20 @@ class CamoufoxWebviewRendererTest {
                 "/seed" -> {
                     exchange.responseHeaders.add("Set-Cookie", "session=alpha==; Path=/; HttpOnly")
                     respond(exchange, "seeded", "text/plain; charset=utf-8")
+                }
+                "/seed-scoped" -> {
+                    exchange.responseHeaders.add("Set-Cookie", "scoped=only; Path=/scoped; HttpOnly")
+                    respond(exchange, "seeded", "text/plain; charset=utf-8")
+                }
+                "/scoped/resource-page" -> respond(
+                    exchange,
+                    "<html><body><div id='main-cookie'>$cookie</div><script src='/unscoped-probe'></script></body></html>",
+                    "text/html; charset=utf-8"
+                )
+                "/unscoped-probe" -> {
+                    unscopedProbeCookie.set(cookie)
+                    unscopedProbeHits.incrementAndGet()
+                    respond(exchange, ";", "application/javascript; charset=utf-8")
                 }
                 "/echo" -> respond(
                     exchange,
@@ -116,6 +134,18 @@ class CamoufoxWebviewRendererTest {
         val bob = renderer.render(request("/echo", "bob"))
         assertTrue("Alice's next synthetic echo was: ${alice.body}", alice.body?.contains("session=alpha==") == true)
         assertTrue("Bob's synthetic echo was: ${bob.body}", bob.body?.endsWith("||") == true)
+    }
+
+    @Test
+    fun importedHostOnlyCookieRetainsPathForSubresources() = runBlocking {
+        renderer.render(request("/seed-scoped", "scoped-user"))
+        val stored = BrowserCookieJar.storedCookies(CookieStore("scoped-user"))
+        assertEquals("/scoped", stored.single { it.name == "scoped" }.path)
+
+        val page = renderer.render(request("/scoped/resource-page", "scoped-user"))
+        assertTrue("Scoped navigation lost its Cookie", page.body?.contains("scoped=only") == true)
+        assertEquals("The cross-path script request must complete", 1, unscopedProbeHits.get())
+        assertFalse("A /scoped Cookie leaked to /unscoped-probe", unscopedProbeCookie.get().contains("scoped=only"))
     }
 
     @Test

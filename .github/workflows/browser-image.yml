@@ -160,6 +160,13 @@ jobs:
           READER_CAMOUFOX_PYTHON: ${{ runner.temp }}/reader-camoufox/bin/python
           READER_CAMOUFOX_BROWSER_VERSION: '152.0.4-beta.30'
         run: ./gradlew test --tests 'com.htmake.reader.utils.CamoufoxWebviewRendererTest' --no-daemon
+      - name: Preserve Camoufox contract report
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: camoufox-contract-report
+          path: build/test-results/test/TEST-com.htmake.reader.utils.CamoufoxWebviewRendererTest.xml
+          if-no-files-found: warn
       - name: Build one-container image
         shell: bash
         run: |

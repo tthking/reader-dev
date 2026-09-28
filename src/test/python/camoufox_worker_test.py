@@ -55,13 +55,15 @@ class WorkerCookieProtocolTest(unittest.TestCase):
             "http://books.example.test/login",
         ))
 
-    def test_host_only_import_keeps_non_default_request_port(self):
+    def test_host_only_import_keeps_exact_path_without_widening(self):
         cookie = {
             "name": "session", "value": "alpha", "domain": "127.0.0.1",
-            "path": "/", "hostOnly": True, "secure": False,
+            "path": "/scoped", "hostOnly": True, "secure": False,
         }
         imported = worker.as_playwright_cookie(cookie, "http://127.0.0.1:18890/echo")
-        self.assertEqual("http://127.0.0.1:18890/", imported["url"])
+        self.assertNotIn("url", imported)
+        self.assertEqual("127.0.0.1", imported["domain"])
+        self.assertEqual("/scoped", imported["path"])
 
     def test_unchanged_imported_cookie_is_transient_but_response_change_is_returned(self):
         imported = {
