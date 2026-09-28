@@ -17,6 +17,7 @@ on:
       - 'deploy/reader-pro/install_camoufox_pinned.py'
       - 'deploy/reader-pro/requirements-camoufox.lock'
       - 'scripts/smoke-local-webview.py'
+      - 'scripts/smoke-public-webview.py'
       - 'src/main/java/com/htmake/reader/api/YueduApi.kt'
       - 'src/main/java/com/htmake/reader/api/controller/SourceLoginController.kt'
       - 'src/main/java/com/htmake/reader/config/AppConfig.kt'
@@ -56,6 +57,7 @@ on:
       - 'deploy/reader-pro/install_camoufox_pinned.py'
       - 'deploy/reader-pro/requirements-camoufox.lock'
       - 'scripts/smoke-local-webview.py'
+      - 'scripts/smoke-public-webview.py'
       - 'src/main/java/com/htmake/reader/api/YueduApi.kt'
       - 'src/main/java/com/htmake/reader/api/controller/SourceLoginController.kt'
       - 'src/main/java/com/htmake/reader/config/AppConfig.kt'
@@ -80,6 +82,12 @@ on:
       - 'src/test/java/io/legado/app/model/analyzeRule/**'
       - 'src/test/python/camoufox_worker_test.py'
   workflow_dispatch:
+    inputs:
+      real_public_source:
+        description: 'Also read one public book-list page through the bundled Camoufox browser'
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -214,6 +222,9 @@ jobs:
           curl -fsS http://127.0.0.1:18890/reader3/getSystemInfo >/dev/null
           docker exec reader-browser-smoke python -m camoufox version
           python3 scripts/smoke-local-webview.py --reader-base http://127.0.0.1:18890
+          if [[ "${{ inputs.real_public_source }}" == "true" ]]; then
+            python3 scripts/smoke-public-webview.py --reader-base http://127.0.0.1:18890
+          fi
       - name: Print container diagnostics and stop it
         if: always()
         shell: bash
