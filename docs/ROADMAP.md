@@ -1,6 +1,6 @@
 # Reader-dev 维护路线
 
-更新日期：2026-09-26。
+更新日期：2026-09-28。
 
 ## 当前方向
 
@@ -8,6 +8,12 @@
 - Rust 旧线和 Go 重写成果保留作历史参考，暂不继续全量重写，也不以它们作为当前版本的兼容性依据。旧 Rust 专属问题不等于已修复；仍适用于当前产品的问题继续跟踪。
 - 当前发布版继续保留原 JAR 的 Vue 2 界面作为回退；新 UI 工作转向参考 Rust `master/web-ui` 的 Vue 3 设计语言，但以 Java/Kotlin 后端为唯一接入目标。Rust 前端的功能不全，不能直接替换现有页面或照搬其后端契约。
 - 已发布版本、构建证据和已知限制见 `docs/releases/` 与 `reports/`。本路线图描述优先级，不代表其中每项已经交付。
+
+## 2026-09-28 当前验收快照
+
+- **已成功重建**：候选分支 `ci/full-reader-20260926` 已把 Java/Kotlin 后端、Vue 3 前端、固定 Camoufox 浏览器及依赖放入单个完整镜像；[GitHub 托管 runner 的完整镜像作业](https://github.com/warpdotsys/reader-dev/actions/runs/36367557675)通过真实浏览器合约、镜像构建、受限容器启动、合成书源和一条公开实站 WebView 搜索。该作业不证明 ARM64、生产负载或所有真实书源兼容。具体样本、摘要和限制见[公开真实书源差分](REAL-SOURCE-DIFF-2026-09-28.md)。
+- **已从原始 JAR 验证**：同一公开站点的静态目录样本在原 JAR 和当前本机恢复构建中均返回 10 本书；HTTP 状态、`ReturnData` 及规范化数据摘要一致。该样本未启用 WebView，不能与上一条拼成原 JAR／旧远程服务／Camoufox 三方等价。
+- **尚未验证**：旧远程 WebView 服务当前不在生产主机运行，需另行建立可追溯、隔离的同条件对照；登录态、真实脚本规则、长期并发、ARM64、生产数据与公网部署也未通过验收。`legacy` 默认分支和生产 `read.medwarp.cn` 仍未切到该候选，不创建正式发布标签。候选三道门禁、已知问题和回滚边界见[验收记录](CANDIDATE-2026-09-28.md)。下文 2026-09-25/26 的进度段落保留历史语境，不能代替此快照。
 
 ## 近期主线（2026-09-26 调整）
 
@@ -29,9 +35,9 @@
 - [ ] 将已验证的产物部署到用户指定的 `cdn.medwarp.cn` 主机，先保留现有容器、配置和存储的可回滚副本，再执行健康检查及公网冒烟测试。`cdn.medwarp.cn` 在此处是部署主机；当前应用公网域名仍配置为 `read.medwarp.cn`，不得擅自把两者混为一谈或更改应用域名。
 - [ ] 若需要导入数据，先确认数据来源和目标命名空间，备份目标 `storage/data` 并在隔离副本验证格式、用户归属和读写；未经校验不得覆盖现有生产数据。部署和数据导入分别记录证据、结果与回滚步骤。
 
-**当前发布链路状态（源码候选，尚未实际发布）**：已把正式版标签校验、GitHub 托管 runner 的 Vue 3 构建、GHCR/Docker Hub 双镜像推送、`cdn.medwarp.cn` 部署与故障回滚写入工作流；PyPI 固定依赖的 wheel SHA-256 也已写入锁文件。上述工作流仍需提交后由 GitHub runner 实跑，双架构容器构建与镜像仓库凭据、生产 SSH/回滚分支仍需现场验证。当前未升版本、未创建 Release、未推送镜像、未部署，不能把静态检查视为上线证据。
+**当前发布链路状态（源码候选，尚未实际发布）**：正式版标签校验、GitHub 托管 runner 的 Vue 3 构建、GHCR/Docker Hub 双镜像推送、`cdn.medwarp.cn` 部署与故障回滚已写入工作流；PyPI 固定依赖的 wheel SHA-256 已写入锁文件。候选分支的 Java/Kotlin、Vue 3 与单容器浏览器三道测试工作流已由托管 runner 实跑通过，但带稳定标签的 `release.yml` 尚未执行；双架构镜像、镜像仓库凭据、生产 SSH/回滚分支仍需正式发布时验证。当前未升版本、未创建 Release、未推送新镜像、未部署候选，不能把测试工作流的绿灯说成上线证据。
 
-## 内置指纹无头浏览器（Camoufox 候选正在接入，尚未完成容器验收）
+## 内置指纹无头浏览器（历史计划与阶段记录；当前状态见上方快照）
 
 目标是让需要 `webView` 的书源在 Reader 的一个部署单元内完成渲染：浏览器二进制和驱动随浏览器版镜像预装，由 Java/Kotlin 服务监管本地子进程；不要求用户再运行 `readerwebview` 容器，也不对公网开放浏览器控制端口。这里的“内置”不等于把浏览器塞进 JVM 进程，更不等于给普通 Chromium 改个 User-Agent 就宣称具备指纹能力。
 
@@ -57,7 +63,7 @@
 - [ ] 同时验证无头与必要时的虚拟显示模式。Camoufox 的[虚拟显示方案](https://camoufox.com/python/virtual-display/)需要 Xvfb；任何模式都必须在实际生产镜像中测试，不把宿主机 PoC 当成容器验收。
 - [ ] 小流量灰度后再考虑将本地引擎设为默认；发布说明列出镜像体积、额外内存、可用架构、已知不兼容书源及回滚步骤。远程接口待存量用户迁移验证后再决定废弃，不在第一步删除。
 
-完成条件：在**单个 Reader 容器**中，无独立 WebView 容器即可运行被选中的 WebView 书源；固定样本与真实书源的结果、Cookie/用户隔离和异常路径通过差分；空闲与并发资源预算、崩溃恢复及升级回滚均有实测证据。以上均为待办，当前版本尚不具备内置指纹浏览器。
+完成条件：在**单个 Reader 容器**中，无独立 WebView 容器即可运行被选中的 WebView 书源；固定样本与真实书源的结果、Cookie/用户隔离和异常路径通过差分；空闲与并发资源预算、崩溃恢复及升级回滚均有实测证据。候选镜像已满足单容器启动和部分样本，但整个完成条件尚未达到，当前生产版本也未切换到该候选。
 
 进度记录：已在源码中加入 `WebviewRenderer`/`WebviewRequest` 边界，远程渲染仍可配置回退；定向测试覆盖适配器参数传递、`/render.html` 请求协议及按用户命名空间保存远程 Cookie。原 JAR 中 `_cookieJar` 非 URL 键被忽略的问题已在源码中有意修复，证据见 `reports/WEBVIEW-COOKIE-COMPATIBILITY.md`；原 JAR 与恢复版的三次受控 WebView 黑盒差分见 `reports/WEBVIEW-DIFF-AND-CANDIDATES.md`。独立的 [Playwright Java 功能基线 PoC](../browser-poc/README.md)在本机 Chrome 上 4 项合成页面测试通过。`LocalWebviewRenderer` 已接入 Java/Kotlin 工程；HTTP 与 SOCKS4/5 书源代理经本地出口代理转发，单元测试验证目标 IP 固定、HTTP/SOCKS5 认证以及凭据不泄漏到源站。[GitHub 托管 runner 36131976893](https://github.com/warpdotsys/reader-dev/actions/runs/36131976893)以真实 Chromium 验证了 GET/POST、Cookie 用户隔离、JS 子资源、分块 SSE 以及跨重定向拦截 loopback；同一 workflow 还构建单容器完整镜像，并通过首页、合成书源搜索和 Cookie 序列 `空 → 空 → session=alpha== → 空` 烟测。Java/Kotlin CI 36131976780 通过。本机全量 Gradle 测试为 52 项、0 失败，7 项因本机无 Chromium 而跳过；托管 runner 补跑了浏览器测试。仍不支持 `sourceRegex` 和非 UTF-8 `encode`；当前不是指纹引擎，真实书源兼容差分、生产网络隔离、ARM64、长期并发资源预算仍未完成。
 
