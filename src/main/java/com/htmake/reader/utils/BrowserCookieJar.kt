@@ -250,7 +250,7 @@ object BrowserCookieJar {
             (!cookie.secure || !cookie.hostOnly || cookie.path != "/" || response.scheme != "https")
         ) return false
         return if (cookie.hostOnly) cookie.domain == response.host
-        else response.host == cookie.domain || response.host.endsWith(".${cookie.domain}")
+        else isRegistrableDomain(cookie.domain) && domainMatches(response.host, cookie.domain)
     }
 
     private fun parseSetCookie(header: String, responseUrl: String): Cookie? {
@@ -319,7 +319,10 @@ object BrowserCookieJar {
     }
 
     private fun isRegistrableDomain(domain: String): Boolean = runCatching {
-        InternetDomainName.from(domain).isUnderPublicSuffix
+        // An unrecognized test/private TLD is not itself a known public suffix.
+        // Reject known suffixes such as com/co.uk without discarding otherwise
+        // valid Domain cookies that the browser can accept for example.test.
+        !InternetDomainName.from(domain).isPublicSuffix
     }.getOrDefault(false)
 
     private fun matches(cookie: Cookie, request: RequestTarget): Boolean {

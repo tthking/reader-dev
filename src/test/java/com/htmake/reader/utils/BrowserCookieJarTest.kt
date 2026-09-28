@@ -89,6 +89,15 @@ class BrowserCookieJarTest {
     }
 
     @Test
+    fun browserWorkerCannotInjectAPublicSuffixDomain() {
+        val store = CookieStore("reader")
+        BrowserCookieJar.merge(store, "https://books.example.com/seed", listOf(
+            cookie("leak", "blocked", "com", hostOnly = false)
+        ))
+        assertTrue(BrowserCookieJar.storedCookies(store).isEmpty())
+    }
+
+    @Test
     fun sameOriginResponseUpdatesAreRestoredForNextRequest() {
         val store = CookieStore("reader")
         BrowserCookieJar.merge(store, "https://books.example.test/login", listOf(

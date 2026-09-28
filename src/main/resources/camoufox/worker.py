@@ -235,8 +235,16 @@ def as_playwright_cookie(cookie, request_url):
     if cookie.get("hostOnly", True):
         # Playwright uses url cookies to create host-only records. A secure cookie
         # needs an HTTPS URL even if this page currently arrived over HTTP.
-        scheme = "https" if cookie.get("secure") else urlsplit(request_url).scheme.lower()
-        result["url"] = "%s://%s%s" % (scheme, cookie["domain"], path)
+        # Keep the request's port, as the earlier working bridge did. Dropping a
+        # non-default port changes the URL supplied to Firefox and is not a safe
+        # interpretation of a host-only cookie's original request context.
+        origin = urlsplit(request_url)
+        scheme = "https" if cookie.get("secure") else origin.scheme.lower()
+        host = origin.hostname or cookie["domain"]
+        authority = "[%s]" % host if ":" in host else host
+        if origin.port is not None:
+            authority += ":%d" % origin.port
+        result["url"] = "%s://%s%s" % (scheme, authority, path)
     else:
         result["domain"] = "." + cookie["domain"]
         result["path"] = path
@@ -278,6 +286,15 @@ def cookie_changed_from_initial(cookie, initial_cookies, response_seen):
         # same-value refresh without re-persisting unrelated imported cookies.
         return True
     return initial_cookies.get(identity) != cookie
+
+
+def missing_initial_cookie_tombstones(initial_visible, final_visible, response_seen):
+    """Propagate JavaScript/expiry deletions without guessing about unseen cookies."""
+    return {
+        identity: bounded_cookie(dict(cookie, value="", expires=0, deleted=True))
+        for identity, cookie in initial_visible.items()
+        if identity not in final_visible and identity not in response_seen
+    }
 
 
 def render(payload):
@@ -346,6 +363,16 @@ def render(payload):
                         for cookie in cookies
                         if request_matches_cookie(cookie, url)
                     ])
+                # Only a cookie that Firefox actually accepted at import time
+                # may later be declared deleted when it disappears. A raw input
+                # record absent from both snapshots is not proof of deletion.
+                initial_visible = {}
+                for item in context.cookies():
+                    imported = portable_snapshot_cookie(
+                        item, document_origin, {}, request_cookie_metadata
+                    )
+                    if imported:
+                        initial_visible[cookie_identity(imported)] = imported
 
                 def remember_response_cookies(response):
                     """Keep a structured same-origin fallback for Camoufox snapshots."""
@@ -442,17 +469,22 @@ def render(payload):
                 # structured Set-Cookie records above are merged after the snapshot.
                 # The fallback is same-origin only and includes expiry/deletion.
                 cookie_values = {}
+                final_visible = set()
                 for item in context.cookies():
                     cookie = portable_snapshot_cookie(
                         item, document_origin, response_cookies, request_cookie_metadata
                     )
                     if not cookie:
                         continue
+                    final_visible.add(cookie_identity(cookie))
                     if not cookie_changed_from_initial(cookie, initial_cookies, response_seen):
                         continue
                     if len(cookie_values) >= MAX_COOKIES and cookie_identity(cookie) not in cookie_values:
                         raise CookieLimitExceeded()
                     cookie_values[cookie_identity(cookie)] = cookie
+                cookie_values.update(missing_initial_cookie_tombstones(
+                    initial_visible, final_visible, response_seen
+                ))
                 cookie_values.update(response_cookies)
                 if len(cookie_values) > MAX_COOKIES:
                     raise CookieLimitExceeded()

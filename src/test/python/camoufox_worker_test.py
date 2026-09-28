@@ -55,6 +55,14 @@ class WorkerCookieProtocolTest(unittest.TestCase):
             "http://books.example.test/login",
         ))
 
+    def test_host_only_import_keeps_non_default_request_port(self):
+        cookie = {
+            "name": "session", "value": "alpha", "domain": "127.0.0.1",
+            "path": "/", "hostOnly": True, "secure": False,
+        }
+        imported = worker.as_playwright_cookie(cookie, "http://127.0.0.1:18890/echo")
+        self.assertEqual("http://127.0.0.1:18890/", imported["url"])
+
     def test_unchanged_imported_cookie_is_transient_but_response_change_is_returned(self):
         imported = {
             "name": "once", "value": "header", "domain": "books.example.test",
@@ -75,6 +83,20 @@ class WorkerCookieProtocolTest(unittest.TestCase):
         key = worker.cookie_identity(deleted)
         self.assertTrue(deleted["deleted"])
         self.assertTrue(worker.cookie_changed_from_initial(deleted, {}, {key}))
+
+    def test_only_an_initially_visible_cookie_can_be_deleted_by_snapshot_delta(self):
+        cookie = {
+            "name": "session", "value": "alpha", "domain": "books.example.test",
+            "path": "/", "hostOnly": True, "secure": False, "httpOnly": False,
+            "sameSite": None, "expires": -1, "deleted": False,
+        }
+        key = worker.cookie_identity(cookie)
+        tombstones = worker.missing_initial_cookie_tombstones({key: cookie}, set(), set())
+        self.assertTrue(tombstones[key]["deleted"])
+        self.assertEqual("", tombstones[key]["value"])
+        self.assertEqual({}, worker.missing_initial_cookie_tombstones({}, set(), set()))
+        self.assertEqual({}, worker.missing_initial_cookie_tombstones({key: cookie}, {key}, set()))
+        self.assertEqual({}, worker.missing_initial_cookie_tombstones({key: cookie}, set(), {key}))
 
 
 if __name__ == "__main__":

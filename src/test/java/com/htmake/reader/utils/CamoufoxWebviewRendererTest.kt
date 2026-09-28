@@ -110,12 +110,12 @@ class CamoufoxWebviewRendererTest {
     fun cookiesArePersistedPerReaderNamespace() = runBlocking {
         renderer.render(request("/seed", "alice"))
         val aliceJar = BrowserCookieJar.storedCookies(CookieStore("alice"))
-        assertEquals("alpha==", aliceJar.single { it.name == "session" }.value)
-        assertTrue(BrowserCookieJar.storedCookies(CookieStore("bob")).isEmpty())
+        assertEquals("The synthetic Set-Cookie must be persisted for Alice", "alpha==", aliceJar.single { it.name == "session" }.value)
+        assertTrue("Bob must not inherit Alice's synthetic Cookie", BrowserCookieJar.storedCookies(CookieStore("bob")).isEmpty())
         val alice = renderer.render(request("/echo", "alice"))
         val bob = renderer.render(request("/echo", "bob"))
-        assertTrue(alice.body?.contains("session=alpha==") == true)
-        assertTrue(bob.body?.endsWith("||") == true)
+        assertTrue("Alice's next synthetic echo was: ${alice.body}", alice.body?.contains("session=alpha==") == true)
+        assertTrue("Bob's synthetic echo was: ${bob.body}", bob.body?.endsWith("||") == true)
     }
 
     @Test
