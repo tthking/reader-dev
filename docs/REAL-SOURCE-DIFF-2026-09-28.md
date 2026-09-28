@@ -23,8 +23,14 @@ python -B scripts/compare-real-public-explore.py
 - 恢复版同样返回 HTTP 200、`isSuccess=true`、`errorMsg=""`；解析 10 本书，10 本均有 `bookUrl`，规范化数据摘要与原 JAR 相同。
 - 首项字段集合均为 `author, bookUrl, intro, latestChapterTitle, name, origin, originName, originOrder, time, tocUrl, type, wordCount`。本样本中未观察到数据兼容差异。
 
+## 已从 GitHub 托管 runner 的单容器验证
+
+手动开启 `browser-image.yml` 的 `real_public_source` 选项后，[作业 36367557675](https://github.com/warpdotsys/reader-dev/actions/runs/36367557675) 完成 JAR 构建、真实 Camoufox 合约、完整镜像构建及容器内合成书源冒烟，并在同一受限容器中通过镜像内的 Camoufox 请求上述真实公开目录。这个额外测试调用 `/reader3/searchBook`，测试书源的 `searchUrl` 明确设置 `{"webView": true}`；返回 HTTP 200、`isSuccess=true`、`errorMsg=""`、10 本书，书名与 URL 投影 SHA-256 为 `F49D8B6E0A207FC31B8447D99287CE9B23708E56F7059E85C8964C0B4F15B6E2`。容器使用 2 GiB 内存、3 GiB memory+swap、256 PIDs 和 2 CPU 上限。本测试由托管 runner 执行，不依赖用户电脑或生产主机的 Chrome，也没有独立运行的 WebView 服务。
+
+实站步骤是显式手动选项；普通 CI 仍运行确定性的合成书源，以免外部站点临时停机被误判为源码回归。站点列表会随时间变化，不能把两次不同环境的结果摘要视为严格字节差分；本节证明的是容器内公开实站的正向功能，而不是原 JAR 对 Camoufox 的等价性。
+
 ## 尚未验证
 
-- 此样本是公开静态目录的真实 HTTP/规则解析，不是 JavaScript 页面，也未启用 `webView`。不能推导出旧远程 WebView、内置 Camoufox 与原 JAR 的真实书源三方等价。
+- 原 JAR／恢复版的一致性样本是公开静态目录的真实 HTTP/规则解析，未启用 `webView`；另一个容器内样本启用了内置 Camoufox，但没有同条件运行原 JAR 和旧远程 WebView。两项证据不能拼接成三方等价，且站点本身不是依赖 JavaScript 或登录态的样本。
 - 还需覆盖真实脚本、重定向、登录态 Cookie、跨用户隔离、超时、异常响应、来源限制与并发资源。在生产主机上，旧 Reader 配置引用的远程 WebView 服务当前不可用；恢复其可复现对照前，不应声称完成三方验证。
 - 页面可能随站点更新而变化。脚本每次都记录前后上游摘要；如果摘要变动，即便两个 JAR 的结果不同也须先排除内容漂移。测试成功不授权持续高频抓取该站。
