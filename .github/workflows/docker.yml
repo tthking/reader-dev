@@ -1,7 +1,10 @@
 name: Build & Push Docker to imccn/rust-reader
 
-# 多架构策略：amd64 (ubuntu-latest) 与 arm64 (ubuntu-24.04-arm) 官方原生并发极速编译；
+# 多架构策略：amd64 与 arm64 官方原生并发极速编译；
 # 完成后 merge job 合成正式多架构 manifest 并推送到 Docker Hub (imccn/rust-reader)。
+# 标签分配：
+#   - latest 与 slim：均指向轻量精简版（约 53MB，爱快首选）
+#   - full：指向包含 Camoufox 浏览器的全量版（约 960MB）
 
 on:
   push:
@@ -37,20 +40,20 @@ jobs:
       - name: 登录 GHCR 中转
         run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
 
-      - name: 构建并推送 amd64 (完整版 + 极简版)
+      - name: 构建并推送 amd64 (全量版 + 极简版)
         run: |
           REPO_LC=$(echo "${{ github.repository }}" | tr '[:upper:]' '[:lower:]')
           
-          # 1. 编译并推送完整版 (latest-amd64)
+          # 1. 编译全量版 (full-amd64)
           docker buildx build \
             --platform linux/amd64 \
             --push \
             --cache-from type=gha \
             --cache-to type=gha,mode=max \
-            -t "ghcr.io/$REPO_LC:latest-amd64" \
+            -t "ghcr.io/$REPO_LC:full-amd64" \
             .
             
-          # 2. 编译并推送极简版 (slim-amd64)
+          # 2. 编译极简版 (slim-amd64)
           docker buildx build \
             --platform linux/amd64 \
             --file ./Dockerfile.slim \
@@ -72,20 +75,20 @@ jobs:
       - name: 登录 GHCR 中转
         run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
 
-      - name: 构建并推送 arm64 (完整版 + 极简版)
+      - name: 构建并推送 arm64 (全量版 + 极简版)
         run: |
           REPO_LC=$(echo "${{ github.repository }}" | tr '[:upper:]' '[:lower:]')
           
-          # 1. 编译并推送完整版 (latest-arm64)
+          # 1. 编译全量版 (full-arm64)
           docker buildx build \
             --platform linux/arm64 \
             --push \
             --cache-from type=gha \
             --cache-to type=gha,mode=max \
-            -t "ghcr.io/$REPO_LC:latest-arm64" \
+            -t "ghcr.io/$REPO_LC:full-arm64" \
             .
             
-          # 2. 编译并推送极简版 (slim-arm64)
+          # 2. 编译极简版 (slim-arm64)
           docker buildx build \
             --platform linux/arm64 \
             --file ./Dockerfile.slim \
@@ -110,27 +113,21 @@ jobs:
 
       - name: 合成并推送多架构清单到 Docker Hub
         env:
-          REF_TYPE: ${{ github.ref_type }}
-          REF_NAME: ${{ github.ref_name }}
           GH_REPO: ${{ github.repository }}
         run: |
           set -ex
           REPO_LC=$(echo "$GH_REPO" | tr '[:upper:]' '[:lower:]')
-          
-          if [ "$REF_TYPE" = "tag" ]; then
-            TAG_ARGS="-t $TARGET_REPO:latest -t $TARGET_REPO:$REF_NAME"
-            SLIM_ARGS="-t $TARGET_REPO:slim -t $TARGET_REPO:slim-$REF_NAME"
-          else
-            TAG_ARGS="-t $TARGET_REPO:latest -t $TARGET_REPO:master"
-            SLIM_ARGS="-t $TARGET_REPO:slim -t $TARGET_REPO:slim-master"
-          fi
 
-          # 1. 合成发布完整版到 Docker Hub 与 GHCR
-          docker buildx imagetools create $TAG_ARGS \
+          # 1. 发布极简版 (同时作为 latest 和 slim，仅约 53MB)
+          docker buildx imagetools create \
+            -t "$TARGET_REPO:latest" \
+            -t "$TARGET_REPO:slim" \
             -t "ghcr.io/$REPO_LC:latest" \
-            "ghcr.io/$REPO_LC:latest-amd64" "ghcr.io/$REPO_LC:latest-arm64"
-
-          # 2. 合成发布极简版到 Docker Hub 与 GHCR (仅 ~50MB)
-          docker buildx imagetools create $SLIM_ARGS \
             -t "ghcr.io/$REPO_LC:slim" \
             "ghcr.io/$REPO_LC:slim-amd64" "ghcr.io/$REPO_LC:slim-arm64"
+
+          # 2. 发布全量版 (标记为 full，约 960MB)
+          docker buildx imagetools create \
+            -t "$TARGET_REPO:full" \
+            -t "ghcr.io/$REPO_LC:full" \
+            "ghcr.io/$REPO_LC:full-amd64" "ghcr.io/$REPO_LC:full-arm64"
