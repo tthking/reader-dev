@@ -11,8 +11,10 @@ use sqlx::FromRow;
 #[serde(default)]
 pub struct BookGroup {
     /// 分组 id（AUTOINCREMENT；>0 时 save 按 id 覆盖）
+    #[serde(alias = "groupId")]
     pub id: i64,
     /// 分组名（必填）
+    #[serde(alias = "groupName")]
     pub name: String,
     /// 分组封面（legacy BookGroup.cover；空 = 无封面）
     pub cover: Option<String>,

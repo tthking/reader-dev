@@ -2592,6 +2592,17 @@ impl Storage {
         Ok(rows)
     }
 
+    /// 列出命名空间全部书签（用于全局书签管理）
+    pub async fn list_all_bookmarks(&self, ns: &str) -> Result<Vec<crate::model::Bookmark>> {
+        let rows = sqlx::query_as::<_, crate::model::Bookmark>(
+            "SELECT * FROM bookmarks WHERE user_namespace = ?1 ORDER BY created_at DESC, rowid DESC",
+        )
+        .bind(ns)
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows)
+    }
+
     /// 删除书签（book_url + title）；返回受影响行数
     pub async fn delete_bookmark(&self, ns: &str, book_url: &str, title: &str) -> Result<u64> {
         let r = sqlx::query(
@@ -2600,6 +2611,24 @@ impl Storage {
         .bind(ns)
         .bind(book_url)
         .bind(title)
+        .execute(&self.pool)
+        .await?;
+        Ok(r.rows_affected())
+    }
+
+    /// 删除书签（按 bookName + bookAuthor，兼容 legacy 前端契约）
+    pub async fn delete_bookmark_by_name_author(
+        &self,
+        ns: &str,
+        book_name: &str,
+        book_author: &str,
+    ) -> Result<u64> {
+        let r = sqlx::query(
+            "DELETE FROM bookmarks WHERE user_namespace = ?1 AND book_name = ?2 AND book_author = ?3",
+        )
+        .bind(ns)
+        .bind(book_name)
+        .bind(book_author)
         .execute(&self.pool)
         .await?;
         Ok(r.rows_affected())
@@ -2648,9 +2677,23 @@ impl Storage {
             .execute(&self.pool)
             .await?;
         } else {
-            let r = sqlx::query(
-                "INSERT INTO book_groups (name, cover, show, order_num, user_namespace) VALUES (?1, ?2, ?3, ?4, ?5)",
+            // legacy Legado 契约：用户自定义分组采用二进制位掩码 id (1, 2, 4, 8, 16...)
+            let existing_ids: Vec<i64> = sqlx::query_scalar(
+                "SELECT id FROM book_groups WHERE user_namespace = ?1 AND id > 0",
             )
+            .bind(ns)
+            .fetch_all(&self.pool)
+            .await
+            .unwrap_or_default();
+            let mut new_id: i64 = 1;
+            while existing_ids.contains(&new_id) {
+                new_id <<= 1;
+            }
+            g.id = new_id;
+            sqlx::query(
+                "INSERT INTO book_groups (id, name, cover, show, order_num, user_namespace) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            )
+            .bind(g.id)
             .bind(&g.name)
             .bind(&g.cover)
             .bind(g.show)
@@ -2658,7 +2701,6 @@ impl Storage {
             .bind(ns)
             .execute(&self.pool)
             .await?;
-            g.id = r.last_insert_rowid();
         }
         Ok(g)
     }
@@ -3321,10 +3363,26 @@ impl Storage {
         rule: &crate::model::ReplaceRule,
     ) -> Result<String> {
         let mut r = rule.clone();
+        if r.id.trim().is_empty() {
+            let existing_id: Option<String> = sqlx::query_scalar(
+                "SELECT id FROM replace_rules WHERE user_namespace = ?1 AND name = ?2",
+            )
+            .bind(ns)
+            .bind(&r.name)
+            .fetch_optional(&self.pool)
+            .await?;
+            if let Some(id) = existing_id {
+                r.id = id;
+            } else {
+                r.id = format!("rule-{}", uuid::Uuid::new_v4());
+            }
+        }
         self.ensure_rule_id_owned("replace_rules", ns, &mut r.id)
             .await?;
         sqlx::query(
-            "INSERT OR REPLACE INTO replace_rules (id, name, group_name, find, replace, scope,              scope_title, scope_content, is_regex, timeout_millisecond, enable, order_num, user_namespace)              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
+            "INSERT OR REPLACE INTO replace_rules (id, name, group_name, find, replace, scope, \
+             scope_title, scope_content, is_regex, timeout_millisecond, enable, order_num, user_namespace) \
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
         )
         .bind(&r.id)
         .bind(&r.name)
@@ -3372,10 +3430,26 @@ impl Storage {
         let mut tx = self.pool.begin().await?;
         for rule in rules {
             let mut r = rule.clone();
+            if r.id.trim().is_empty() {
+                let existing_id: Option<String> = sqlx::query_scalar(
+                    "SELECT id FROM replace_rules WHERE user_namespace = ?1 AND name = ?2",
+                )
+                .bind(ns)
+                .bind(&r.name)
+                .fetch_optional(&self.pool)
+                .await?;
+                if let Some(id) = existing_id {
+                    r.id = id;
+                } else {
+                    r.id = format!("rule-{}", uuid::Uuid::new_v4());
+                }
+            }
             self.ensure_rule_id_owned("replace_rules", ns, &mut r.id)
                 .await?;
             sqlx::query(
-                "INSERT OR REPLACE INTO replace_rules (id, name, group_name, find, replace, scope,                  scope_title, scope_content, is_regex, timeout_millisecond, enable, order_num, user_namespace)                  VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
+                "INSERT OR REPLACE INTO replace_rules (id, name, group_name, find, replace, scope, \
+                 scope_title, scope_content, is_regex, timeout_millisecond, enable, order_num, user_namespace) \
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
             )
             .bind(&r.id)
             .bind(&r.name)
@@ -3397,9 +3471,9 @@ impl Storage {
         Ok(())
     }
 
-    /// 删除替换规则（按 id，仅限本命名空间）；返回受影响行数
+    /// 删除替换规则（按 id 或 name，仅限本命名空间）；返回受影响行数
     pub async fn delete_replace_rule(&self, ns: &str, id: &str) -> Result<u64> {
-        let r = sqlx::query("DELETE FROM replace_rules WHERE user_namespace = ?1 AND id = ?2")
+        let r = sqlx::query("DELETE FROM replace_rules WHERE user_namespace = ?1 AND (id = ?2 OR name = ?2)")
             .bind(ns)
             .bind(id)
             .execute(&self.pool)

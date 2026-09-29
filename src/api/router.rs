@@ -178,6 +178,14 @@ pub fn router(config: crate::AppConfig, storage: Storage) -> axum::Router {
             "/reader3/file/deleteMulti",
             post(crate::api::files::delete_multi),
         )
+        .route(
+            "/reader3/file/importPreview",
+            post(crate::api::files::import_preview),
+        )
+        .route(
+            "/reader3/file/restore",
+            post(crate::api::files::restore),
+        )
         .route("/reader3/deleteBook", post(delete_book))
         .route("/reader3/saveBook", post(save_book))
         .route("/reader3/saveBookProgress", post(save_book_progress))
@@ -494,13 +502,59 @@ pub fn router(config: crate::AppConfig, storage: Storage) -> axum::Router {
             post(upload_user_file).layer(axum::extract::DefaultBodyLimit::max(upload_limit)),
         )
         .route("/reader3/login", post(login))
-        // legacy 根路径别名（原版 Java Web 前端直连 /login 等端点）
+        .route("/reader3/getLicense", get(get_license).post(get_license))
+        .route("/reader3/importLicense", post(import_license))
+        .route("/reader3/supplyLicense", post(supply_license))
+        .route("/reader3/sendCodeToEmail", post(send_code_to_email))
+        // legacy 根路径别名（原版 Java Web 前端直连端点）
         .route("/login", post(login))
         .route("/getTxtTocRules", get(get_txt_toc_rules).post(get_txt_toc_rules))
         .route("/saveReplaceRule", post(save_replace_rule))
+        .route("/saveReplaceRules", post(save_replace_rules))
+        .route("/deleteReplaceRule", post(delete_replace_rule))
+        .route("/deleteReplaceRules", post(delete_replace_rules))
+        .route("/getReplaceRules", get(get_replace_rules).post(get_replace_rules))
         .route("/saveBookmark", post(save_bookmark))
+        .route("/saveBookmarks", post(save_bookmarks))
+        .route("/deleteBookmark", post(delete_bookmark))
+        .route("/deleteBookmarks", post(delete_bookmarks))
+        .route("/getBookmarks", get(get_bookmarks).post(get_bookmarks))
+        .route("/getBookGroups", get(get_book_groups).post(get_book_groups))
+        .route("/saveBookGroup", post(save_book_group))
+        .route("/saveBookGroupId", post(save_book_group_id))
         .route("/book/saveBookConfig", post(save_book_config))
+        .route("/deleteFile", get(delete_file).post(delete_file))
+        .route("/getLicense", get(get_license).post(get_license))
+        .route("/importLicense", post(import_license))
+        .route("/supplyLicense", post(supply_license))
+        .route("/sendCodeToEmail", post(send_code_to_email))
+        .route("/user/downloadBackupFile", get(download_backup_file))
+        .route(
+            "/importBookPreview",
+            post(import_book_preview).layer(axum::extract::DefaultBodyLimit::max(upload_limit)),
+        )
+        .route("/file/list", get(crate::api::files::list))
+        .route(
+            "/file/parse",
+            get(crate::api::files::parse).post(crate::api::files::parse),
+        )
         .route("/file/get", get(crate::api::files::get))
+        .route("/file/save", post(crate::api::files::save))
+        .route("/file/mkdir", post(crate::api::files::mkdir))
+        .route("/file/rename", post(crate::api::files::rename))
+        .route("/file/download", get(crate::api::files::download))
+        .route(
+            "/file/upload",
+            post(crate::api::files::upload)
+                .layer(axum::extract::DefaultBodyLimit::max(upload_limit)),
+        )
+        .route("/file/delete", post(crate::api::files::delete))
+        .route(
+            "/file/deleteMulti",
+            post(crate::api::files::delete_multi),
+        )
+        .route("/file/importPreview", post(crate::api::files::import_preview))
+        .route("/file/restore", post(crate::api::files::restore))
         .route("/getChapterListByRule", get(get_chapter_list_by_rule).post(get_chapter_list_by_rule))
         .route("/saveFromRemoteSource", post(save_from_remote_source))
         .with_state(state)
@@ -5087,7 +5141,7 @@ async fn delete_books(
     }
 }
 
-/// POST /reader3/deleteBookmarks：批量删书签（body：{bookUrl, ids:[]}——ids 为书签标题）
+/// POST /reader3/deleteBookmarks：批量删书签（body：{bookUrl, ids:[]} 或 [{bookName, bookAuthor}, ...]）
 async fn delete_bookmarks(
     State(state): State<AppState>,
     Query(params): Query<HashMap<String, String>>,
@@ -5106,6 +5160,27 @@ async fn delete_bookmarks(
         Ok(v) => v,
         Err(_) => return Json(ReturnData::err("参数错误")),
     };
+
+    if let serde_json::Value::Array(arr) = json {
+        let mut total = 0u64;
+        for item in arr {
+            let name = item.get("bookName").and_then(|v| v.as_str()).unwrap_or("");
+            let author = item.get("bookAuthor").and_then(|v| v.as_str()).unwrap_or("");
+            let url = item.get("bookUrl").and_then(|v| v.as_str()).unwrap_or("");
+            let title = item.get("title").and_then(|v| v.as_str()).unwrap_or("");
+            if !name.is_empty() || !author.is_empty() {
+                if let Ok(c) = state.storage.delete_bookmark_by_name_author(&namespace, name, author).await {
+                    total += c;
+                }
+            } else if !url.is_empty() && !title.is_empty() {
+                if let Ok(c) = state.storage.delete_bookmark(&namespace, url, title).await {
+                    total += c;
+                }
+            }
+        }
+        return Json(ReturnData::ok(json!({ "count": total })));
+    }
+
     let book_url = json
         .get("bookUrl")
         .and_then(|v| v.as_str())
@@ -5196,8 +5271,20 @@ async fn save_bookmarks(
         return Json(ReturnData::err("参数错误"));
     }
     for b in &mut bookmarks {
+        if b.book_url.trim().is_empty() {
+            b.book_url = format!("{}:{}", b.book_name, b.book_author);
+        }
+        if b.title.trim().is_empty() {
+            b.title = if !b.chapter_name.trim().is_empty() {
+                b.chapter_name.clone()
+            } else if !b.content.trim().is_empty() {
+                b.content.clone()
+            } else {
+                "书签".to_string()
+            };
+        }
         if b.book_url.trim().is_empty() || b.title.trim().is_empty() {
-            return Json(ReturnData::err("参数错误"));
+            continue;
         }
         b.user_namespace = namespace.clone();
         if b.created_at == 0 {
@@ -6651,13 +6738,10 @@ async fn download_backup_file(
         Err(ret) => return Json(ret).into_response(),
     };
     if state.storage.config.secure {
-        let user = match state.storage.find_user(&namespace).await {
+        let _user = match state.storage.find_user(&namespace).await {
             Ok(Some(u)) => u,
             _ => return Json(ReturnData::err("请登录后使用")).into_response(),
         };
-        if !user.enable_webdav {
-            return Json(ReturnData::err("未开启webdav功能")).into_response();
-        }
     }
     match state.storage.create_backup_zip(&namespace).await {
         Ok(path) => match std::fs::read(&path) {
@@ -8360,7 +8444,19 @@ async fn save_bookmark(
         Ok(b) => b,
         Err(_) => return Json(ReturnData::err("参数错误")),
     };
-    if bookmark.book_url.is_empty() || bookmark.title.is_empty() {
+    if bookmark.book_url.trim().is_empty() {
+        bookmark.book_url = format!("{}:{}", bookmark.book_name, bookmark.book_author);
+    }
+    if bookmark.title.trim().is_empty() {
+        bookmark.title = if !bookmark.chapter_name.trim().is_empty() {
+            bookmark.chapter_name.clone()
+        } else if !bookmark.content.trim().is_empty() {
+            bookmark.content.clone()
+        } else {
+            "书签".to_string()
+        };
+    }
+    if bookmark.book_url.trim().is_empty() || bookmark.title.trim().is_empty() {
         return Json(ReturnData::err("参数错误"));
     }
     bookmark.user_namespace = namespace.clone();
@@ -8376,7 +8472,7 @@ async fn save_bookmark(
     }
 }
 
-/// GET/POST /reader3/getBookmarks：书签列表（bookUrl 参数）
+/// GET/POST /reader3/getBookmarks：书签列表（bookUrl 参数为空时返回全部书签）
 async fn get_bookmarks(
     State(state): State<AppState>,
     Query(params): Query<HashMap<String, String>>,
@@ -8390,7 +8486,17 @@ async fn get_bookmarks(
     let body_json = body.and_then(|b| serde_json::from_slice::<serde_json::Value>(&b).ok());
     let book_url = param_of(&params, body_json.as_ref(), "bookUrl");
     if book_url.is_empty() {
-        return Json(ReturnData::err("参数错误"));
+        match state.storage.list_all_bookmarks(&namespace).await {
+            Ok(bookmarks) => {
+                return Json(ReturnData::ok(
+                    serde_json::to_value(bookmarks).unwrap_or(serde_json::Value::Null),
+                ))
+            }
+            Err(e) => {
+                tracing::error!("list_all_bookmarks 失败: {e}");
+                return Json(ReturnData::err("系统错误"));
+            }
+        }
     }
     match state.storage.list_bookmarks(&namespace, &book_url).await {
         Ok(bookmarks) => Json(ReturnData::ok(
@@ -8403,7 +8509,7 @@ async fn get_bookmarks(
     }
 }
 
-/// POST /reader3/deleteBookmark：删除书签（body：bookUrl + title）
+/// POST /reader3/deleteBookmark：删除书签（body：bookUrl + title 或 bookName + bookAuthor）
 async fn delete_bookmark(
     State(state): State<AppState>,
     Query(params): Query<HashMap<String, String>>,
@@ -8417,19 +8523,34 @@ async fn delete_bookmark(
     let body_json = body.and_then(|b| serde_json::from_slice::<serde_json::Value>(&b).ok());
     let book_url = param_of(&params, body_json.as_ref(), "bookUrl");
     let title = param_of(&params, body_json.as_ref(), "title");
-    if book_url.is_empty() || title.is_empty() {
-        return Json(ReturnData::err("参数错误"));
-    }
-    match state
-        .storage
-        .delete_bookmark(&namespace, &book_url, &title)
-        .await
-    {
-        Ok(_) => Json(ReturnData::ok(serde_json::Value::Null)),
-        Err(e) => {
-            tracing::error!("deleteBookmark 失败: {e}");
-            Json(ReturnData::err("删除失败"))
+    let book_name = param_of(&params, body_json.as_ref(), "bookName");
+    let book_author = param_of(&params, body_json.as_ref(), "bookAuthor");
+    if !book_url.is_empty() && !title.is_empty() {
+        match state
+            .storage
+            .delete_bookmark(&namespace, &book_url, &title)
+            .await
+        {
+            Ok(_) => Json(ReturnData::ok(serde_json::Value::Null)),
+            Err(e) => {
+                tracing::error!("deleteBookmark 失败: {e}");
+                Json(ReturnData::err("删除失败"))
+            }
         }
+    } else if !book_name.is_empty() || !book_author.is_empty() {
+        match state
+            .storage
+            .delete_bookmark_by_name_author(&namespace, &book_name, &book_author)
+            .await
+        {
+            Ok(_) => Json(ReturnData::ok(serde_json::Value::Null)),
+            Err(e) => {
+                tracing::error!("deleteBookmarkByNameAuthor 失败: {e}");
+                Json(ReturnData::err("删除失败"))
+            }
+        }
+    } else {
+        Json(ReturnData::err("参数错误"))
     }
 }
 
@@ -8497,9 +8618,16 @@ async fn save_book_group(
                     .await
                     .ok()
                     .and_then(|list| list.into_iter().find(|g| g.id == group.id));
-                Json(ReturnData::ok(
-                    serde_json::to_value(saved.unwrap_or(group)).unwrap_or(serde_json::Value::Null),
-                ))
+                let g = saved.unwrap_or(group);
+                Json(ReturnData::ok(serde_json::json!({
+                    "id": g.id,
+                    "groupId": g.id,
+                    "name": g.name,
+                    "groupName": g.name,
+                    "cover": g.cover,
+                    "show": g.show,
+                    "order": g.order,
+                })))
             }
             Err(e) => {
                 tracing::error!("saveBookGroup 重命名失败: {e}");
@@ -8508,9 +8636,15 @@ async fn save_book_group(
         };
     }
     match state.storage.save_book_group(&namespace, &group).await {
-        Ok(saved) => Json(ReturnData::ok(
-            serde_json::to_value(saved).unwrap_or(serde_json::Value::Null),
-        )),
+        Ok(saved) => Json(ReturnData::ok(serde_json::json!({
+            "id": saved.id,
+            "groupId": saved.id,
+            "name": saved.name,
+            "groupName": saved.name,
+            "cover": saved.cover,
+            "show": saved.show,
+            "order": saved.order,
+        }))),
         Err(e) => {
             tracing::error!("saveBookGroup 失败: {e}");
             Json(ReturnData::err("保存失败"))
@@ -8864,7 +8998,7 @@ async fn save_book_config(
 }
 
 /// POST /reader3/importBookPreview：导入预览（multipart file——解析但不入库）
-/// 返回 {name, author, format, chapterCount, preview: [前 10 章标题]}
+/// 返回 [{name, author, format, chapterCount, preview: [前 10 章标题], book: {...}, chapters: [...]}]
 async fn import_book_preview(
     State(state): State<AppState>,
     Query(params): Query<HashMap<String, String>>,
@@ -8881,51 +9015,63 @@ async fn import_book_preview(
     if let Some(msg) = check_upload_content_length(&headers, max_bytes, max_mb) {
         return Json(ReturnData::err(msg));
     }
-    // 取 file 字段（首块）
-    let mut file_name = String::new();
-    let mut bytes: Vec<u8> = Vec::new();
-    loop {
-        match multipart.next_field().await {
-            Ok(Some(mut field)) => {
-                if field.name() == Some("file") {
-                    file_name = field.file_name().unwrap_or("file").to_string();
-                    // GAP 62：显式字段大小上限（超限 → 明确错误）
-                    match read_multipart_field_limited(&mut field, max_bytes, max_mb).await {
-                        Ok(b) => bytes = b,
-                        Err(msg) => return Json(ReturnData::err(msg)),
+    let mut uploaded_files: Vec<(String, Vec<u8>)> = Vec::new();
+    while let Ok(Some(mut field)) = multipart.next_field().await {
+        let field_name = field.name().unwrap_or("").to_string();
+        if field_name == "file" || field_name.starts_with("file") {
+            let file_name = field.file_name().unwrap_or("file").to_string();
+            match read_multipart_field_limited(&mut field, max_bytes, max_mb).await {
+                Ok(b) => {
+                    if !b.is_empty() {
+                        uploaded_files.push((file_name, b));
                     }
-                    break;
                 }
-            }
-            Ok(None) => break,
-            Err(e) => {
-                tracing::debug!("importBookPreview multipart 读取失败: {e}");
-                break;
+                Err(msg) => return Json(ReturnData::err(msg)),
             }
         }
     }
-    if bytes.is_empty() {
+    if uploaded_files.is_empty() {
         return Json(ReturnData::err("请上传文件"));
     }
-    let safe_name = std::path::Path::new(&file_name)
-        .file_name()
-        .map(|n| n.to_string_lossy().into_owned())
-        .unwrap_or_default();
-    let ext = crate::service::local_book::file_ext(&safe_name);
-    if ext.is_empty()
-        || !crate::service::local_book::SUPPORTED_EXTENSIONS
-            .iter()
-            .any(|e| *e == ext)
-    {
-        // legacy 对齐：文案含扩展名插值
-        return Json(ReturnData::err(format!("不支持导入{ext}格式的书籍文件")));
-    }
-    // 解析（parse_loc_book_path 按扩展名分派；核心逻辑在可测的纯函数中）
     let user_rules = txt_toc_rule_regexes(&state, &namespace).await;
-    match import_preview_from_bytes(&bytes, &safe_name, &ext, &user_rules) {
-        Ok(json) => Json(ReturnData::ok(json)),
-        Err(e) => Json(ReturnData::err(format!("解析失败：{e}"))),
+    let assets_dir = state
+        .storage
+        .config
+        .storage_dir()
+        .join("assets")
+        .join(&namespace)
+        .join("book");
+    let _ = std::fs::create_dir_all(&assets_dir);
+
+    let mut out: Vec<serde_json::Value> = Vec::new();
+    for (file_name, bytes) in uploaded_files {
+        let safe_name = std::path::Path::new(&file_name)
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_default();
+        let ext = crate::service::local_book::file_ext(&safe_name);
+        if ext.is_empty()
+            || !crate::service::local_book::SUPPORTED_EXTENSIONS
+                .iter()
+                .any(|e| *e == ext)
+        {
+            return Json(ReturnData::err(format!("不支持导入{ext}格式的书籍文件")));
+        }
+        let target_file_path = assets_dir.join(&safe_name);
+        if let Err(e) = std::fs::write(&target_file_path, &bytes) {
+            tracing::error!("写入本地书籍文件失败 [{}]: {e}", target_file_path.display());
+            return Json(ReturnData::err("保存书籍文件失败"));
+        }
+        let local_file_url = format!("/assets/{namespace}/book/{safe_name}");
+        match import_preview_from_bytes(&bytes, &safe_name, &ext, &user_rules, &local_file_url) {
+            Ok(item) => out.push(item),
+            Err(e) => {
+                let _ = std::fs::remove_file(&target_file_path);
+                return Json(ReturnData::err(format!("解析失败：{e}")));
+            }
+        }
     }
+    Json(ReturnData::ok(json!(out)))
 }
 
 /// 导入预览核心（纯函数，可测）：字节 → 临时文件 → parse_loc_book_path 解析
@@ -8935,6 +9081,7 @@ fn import_preview_from_bytes(
     file_name: &str,
     ext: &str,
     user_rules: &[String],
+    local_file_url: &str,
 ) -> anyhow::Result<serde_json::Value> {
     let tmp_path =
         std::env::temp_dir().join(format!("reader-preview-{}.{ext}", uuid::Uuid::new_v4()));
@@ -8953,15 +9100,22 @@ fn import_preview_from_bytes(
             .take(10)
             .map(|c| c.title.clone())
             .collect();
-        // P0-6 软兼容：legacy 两步导入流期望 {book, chapters} 字段（saveBook 直接
-        // 消费 book JSON + 章节清单）——在 master 形状上补充，双端均可解析
+        let book_url = if local_file_url.is_empty() {
+            format!("assets/{file_name}")
+        } else {
+            local_file_url.to_string()
+        };
         let book_json = json!({
             "name": name,
             "author": author,
             "kind": format!("{}{}", imported.format.to_uppercase(), "书籍"),
-            "bookUrl": format!("assets/{file_name}"),
+            "bookUrl": book_url.clone(),
             "origin": "loc_book",
-            "tocUrl": "",
+            "originName": file_name,
+            "tocUrl": book_url,
+            "type": crate::service::local_book::local_book_type(ext),
+            "coverUrl": "",
+            "canUpdate": false,
         });
         let chapters: Vec<serde_json::Value> = imported
             .chapters
@@ -9148,7 +9302,10 @@ async fn save_book_group_id(
         Err(ret) => return Json(ret),
     };
     let body_json = body.and_then(|b| serde_json::from_slice::<serde_json::Value>(&b).ok());
-    let book_url = param_of(&params, body_json.as_ref(), "bookUrl");
+    let mut book_url = param_of(&params, body_json.as_ref(), "bookUrl");
+    if book_url.is_empty() {
+        book_url = param_of(&params, body_json.as_ref(), "url");
+    }
     let group = params
         .get("groupId")
         .and_then(|v| v.parse::<i64>().ok())
@@ -9167,7 +9324,7 @@ async fn save_book_group_id(
                         .and_then(|b| b.get("group").and_then(|v| v.as_i64()))
                 })
         })
-        .unwrap_or(-1);
+        .unwrap_or(-999);
     if book_url.is_empty() || group < 0 {
         return Json(ReturnData::err("参数错误"));
     }
@@ -9323,9 +9480,31 @@ async fn get_replace_rules(
     };
     let _ = body;
     match state.storage.get_replace_rules(&namespace).await {
-        Ok(rules) => Json(ReturnData::ok(
-            serde_json::to_value(rules).unwrap_or(serde_json::Value::Null),
-        )),
+        Ok(rules) => {
+            let list: Vec<serde_json::Value> = rules
+                .into_iter()
+                .map(|r| {
+                    serde_json::json!({
+                        "id": r.id,
+                        "name": r.name,
+                        "group": r.group,
+                        "find": r.find,
+                        "pattern": r.find,
+                        "replace": r.replace,
+                        "replacement": r.replace,
+                        "scope": r.scope,
+                        "scopeTitle": r.scope_title,
+                        "scopeContent": r.scope_content,
+                        "isRegex": r.is_regex,
+                        "timeoutMillisecond": r.timeout_millisecond,
+                        "enabled": r.enabled,
+                        "isEnabled": r.enabled,
+                        "order": r.order,
+                    })
+                })
+                .collect();
+            Json(ReturnData::ok(serde_json::json!(list)))
+        }
         Err(e) => {
             tracing::error!("getReplaceRules [{namespace}] 失败: {e}");
             Json(ReturnData::err("系统错误"))
@@ -9478,7 +9657,10 @@ async fn delete_replace_rule(
         Err(ret) => return Json(ret),
     };
     let body_json = body.and_then(|b| serde_json::from_slice::<serde_json::Value>(&b).ok());
-    let id = param_of(&params, body_json.as_ref(), "id");
+    let mut id = param_of(&params, body_json.as_ref(), "id");
+    if id.is_empty() {
+        id = param_of(&params, body_json.as_ref(), "name");
+    }
     if id.is_empty() {
         return Json(ReturnData::err("参数错误"));
     }
@@ -9919,6 +10101,45 @@ async fn import_default_txt_toc_rules(
             Json(ReturnData::err("导入失败"))
         }
     }
+}
+
+// ---------------- 查看/导入授权信息 ----------------
+
+/// GET /reader3/getLicense & /getLicense：查看授权信息（开源版本返回全功能永久授权）
+async fn get_license(
+    State(_state): State<AppState>,
+    headers: HeaderMap,
+) -> Json<ReturnData> {
+    let host = headers
+        .get("host")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("reader.qiapi.xyz");
+    let license = serde_json::json!({
+        "host": host,
+        "userMaxLimit": 99999,
+        "expiredAt": 4102416000000_i64, // 2100-01-01
+        "openApi": true,
+        "simpleWebExpiredAt": 4102416000000_i64,
+    });
+    Json(ReturnData::ok(serde_json::json!({ "license": license })))
+}
+
+/// POST /reader3/importLicense & /importLicense：更新密钥
+async fn import_license(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Json<ReturnData> {
+    get_license(State(state), headers).await
+}
+
+/// POST /reader3/supplyLicense & /supplyLicense：申请试用（兼容端点）
+async fn supply_license() -> Json<ReturnData> {
+    Json(ReturnData::ok(serde_json::json!({ "key": "FREE-PERMANENT-LICENSE" })))
+}
+
+/// POST /reader3/sendCodeToEmail & /sendCodeToEmail：发送邮箱验证码（兼容端点）
+async fn send_code_to_email() -> Json<ReturnData> {
+    Json(ReturnData::ok(serde_json::json!("")))
 }
 
 // ---------------- 系统信息 + 服务监控 + 书源导出 ----------------
@@ -10389,7 +10610,7 @@ fn resolve_storage_path(
 }
 
 /// 用户 TXT 目录规则正则列表（启用 + 按 serialNumber 排序；失败/无规则返回空 → 调用方回退默认）
-async fn txt_toc_rule_regexes(state: &AppState, ns: &str) -> Vec<String> {
+pub(crate) async fn txt_toc_rule_regexes(state: &AppState, ns: &str) -> Vec<String> {
     match state.storage.get_txt_toc_rules(ns).await {
         Ok(rules) => rules
             .into_iter()
@@ -10407,7 +10628,7 @@ async fn txt_toc_rule_regexes(state: &AppState, ns: &str) -> Vec<String> {
 /// - TXT：文件名解析优先（legacy TextFile 无内容元数据，名称来自 analyzeNameAuthor）；
 /// - 其他格式：内容元数据优先（EPUB OPF/UMD 头/CBZ ComicInfo），文件名解析回退；
 /// - 两者皆空再退文件主名。
-fn local_book_display_meta(
+pub(crate) fn local_book_display_meta(
     file_name: &str,
     ext: &str,
     imported: &crate::service::local_book::ImportedBook,
@@ -12203,7 +12424,7 @@ mod tests {
     async fn test_import_book_preview_api() {
         // 纯函数核心：TXT 三章 → {name/format/chapterCount/preview 前 10 章}
         let txt = "第一章 起点\n内容一。\n第二章 成长\n内容二。\n第三章 终局\n内容三。";
-        let json = import_preview_from_bytes(txt.as_bytes(), "测试.txt", "txt", &[]).unwrap();
+        let json = import_preview_from_bytes(txt.as_bytes(), "测试.txt", "txt", &[], "").unwrap();
         assert_eq!(json["format"], "txt");
         assert_eq!(json["chapterCount"], 3);
         let preview = json["preview"].as_array().unwrap();
@@ -12211,7 +12432,7 @@ mod tests {
         assert_eq!(preview[0], "第一章 起点");
         assert_eq!(preview[2], "第三章 终局");
         // 不支持的格式
-        assert!(import_preview_from_bytes(b"x", "x.exe", "exe", &[]).is_err());
+        assert!(import_preview_from_bytes(b"x", "x.exe", "exe", &[], "").is_err());
 
         // handler 全链路：构造 multipart 请求体 → Multipart 提取器 → 响应
         let (state, dir) = test_state("importprev").await;
@@ -12239,9 +12460,9 @@ mod tests {
         )
         .await;
         assert!(ret.0.is_success, "{}", ret.0.error_msg);
-        assert_eq!(ret.0.data["format"], "txt");
-        assert_eq!(ret.0.data["chapterCount"], 3);
-        assert_eq!(ret.0.data["preview"][0], "第一章 起点");
+        assert_eq!(ret.0.data[0]["format"], "txt");
+        assert_eq!(ret.0.data[0]["chapterCount"], 3);
+        assert_eq!(ret.0.data[0]["preview"][0], "第一章 起点");
         // 不支持的格式 → legacy 文案（含扩展名插值）
         let bad_body = format!(
             "--{boundary}\r\nContent-Disposition: form-data; name=\"file\"; filename=\"test.exe\"\r\nContent-Type: application/octet-stream\r\n\r\nx\r\n--{boundary}--\r\n"

@@ -19,13 +19,13 @@ pub fn get(rel: &str) -> Option<(Vec<u8>, &'static str)> {
     if path.is_empty() {
         return index_html();
     }
-    let file = WebAssets::get(path).or_else(|| WebAssets::get(&format!("{path}/index.html")));
-    match file {
-        Some(f) => {
-            let mime = mime_for(path);
-            Some((f.data.into_owned(), mime))
-        }
-        None => index_html(),
+    if let Some(f) = WebAssets::get(path) {
+        let mime = mime_for(path);
+        Some((f.data.into_owned(), mime))
+    } else if let Some(f) = WebAssets::get(&format!("{path}/index.html")) {
+        Some((f.data.into_owned(), "text/html; charset=utf-8"))
+    } else {
+        index_html()
     }
 }
 

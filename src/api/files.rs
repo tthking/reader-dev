@@ -1027,6 +1027,198 @@ pub async fn delete_multi(
     ))
 }
 
+/// POST /reader3/file/importPreview & /file/importPreview：从书仓或用户目录选择文件导入预览
+/// body: `{"path": ["/a.epub", "/b.txt"], "home": "__LOCAL_STORE__"}` 或 `{"path": "/a.epub", ...}`
+/// 返回: `[{ "book": {...}, "chapters": [...] }]`
+pub async fn import_preview(
+    State(state): State<AppState>,
+    Query(params): Query<HashMap<String, String>>,
+    headers: HeaderMap,
+    body: Option<axum::body::Bytes>,
+) -> Json<ReturnData> {
+    let ns = match resolve_namespace(&state, &params, &headers).await {
+        Ok(ns) => ns,
+        Err(ret) => return Json(ret),
+    };
+    let body_json = body.and_then(|b| serde_json::from_slice::<Value>(&b).ok());
+    let home = str_param(&params, body_json.as_ref(), "home");
+    let user = state.storage.find_user(&ns).await.ok().flatten();
+    let manager = manager_ok(&state.storage.config, &params, body_json.as_ref());
+    let base = match file_home(
+        &state.storage.config,
+        &ns,
+        &home,
+        false,
+        false,
+        manager,
+        user.as_ref(),
+    ) {
+        Ok(b) => b,
+        Err(ret) => return Json(ret),
+    };
+
+    let paths: Vec<String> = match &body_json {
+        Some(Value::Object(obj)) => {
+            if let Some(arr) = obj.get("path").and_then(|v| v.as_array()) {
+                arr.iter().filter_map(|v| v.as_str().map(|s| s.to_string())).collect()
+            } else if let Some(s) = obj.get("path").and_then(|v| v.as_str()) {
+                vec![s.to_string()]
+            } else {
+                Vec::new()
+            }
+        }
+        _ => Vec::new(),
+    };
+    if paths.is_empty() {
+        return Json(ReturnData::err("请选择需要加入书架的书籍"));
+    }
+
+    const BOOK_EXTS: &[&str] = &["txt", "epub", "umd", "cbz", "pdf"];
+    let storage_root = state.storage.config.storage_dir();
+    let user_rules = crate::api::router::txt_toc_rule_regexes(&state, &ns).await;
+    let mut file_list = Vec::new();
+
+    for p_str in paths {
+        let Some(file_path) = resolve_secure_path(&base, &p_str) else {
+            continue;
+        };
+        if !file_path.is_file() {
+            continue;
+        }
+        let fname = file_path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+        let ext = crate::service::local_book::file_ext(&fname);
+        if !BOOK_EXTS.contains(&ext.as_str()) {
+            continue;
+        }
+
+        let rel_from_storage = file_path
+            .strip_prefix(&storage_root)
+            .map(|rp| rp.to_string_lossy().replace('\\', "/"))
+            .unwrap_or_else(|_| file_path.to_string_lossy().replace('\\', "/"));
+        let book_url = if rel_from_storage.starts_with('/') {
+            rel_from_storage
+        } else {
+            format!("/{rel_from_storage}")
+        };
+
+        let imported = match crate::service::local_book::parse_loc_book_path(
+            &file_path,
+            &user_rules,
+            crate::service::local_book::DEFAULT_EPUB_TOC_MODE,
+            false,
+        ) {
+            Ok(res) => res,
+            Err(e) => {
+                tracing::warn!("parse_loc_book_path 失败 [{}]: {e}", file_path.display());
+                continue;
+            }
+        };
+
+        let (bname, bauthor) = crate::service::local_book::analyze_name_author(&fname);
+        let display_name = if !imported.meta.title.is_empty() {
+            imported.meta.title.clone()
+        } else if !bname.is_empty() {
+            bname
+        } else {
+            std::path::Path::new(&fname)
+                .file_stem()
+                .map(|s| s.to_string_lossy().into_owned())
+                .unwrap_or(fname.clone())
+        };
+        let author = if !imported.meta.author.is_empty() {
+            imported.meta.author.clone()
+        } else {
+            bauthor
+        };
+
+        let chapters_json: Vec<Value> = imported
+            .chapters
+            .iter()
+            .enumerate()
+            .map(|(idx, ch)| {
+                json!({
+                    "index": idx,
+                    "title": ch.title,
+                    "url": ch.url,
+                })
+            })
+            .collect();
+
+        let book_obj = json!({
+            "bookUrl": book_url,
+            "tocUrl": book_url,
+            "origin": "loc_book",
+            "originName": fname,
+            "name": display_name,
+            "author": author,
+            "type": crate::service::local_book::local_book_type(&ext),
+            "coverUrl": "",
+            "canUpdate": false,
+        });
+
+        file_list.push(json!({
+            "book": book_obj,
+            "chapters": chapters_json,
+        }));
+    }
+
+    if file_list.is_empty() {
+        return Json(ReturnData::err("没有选择可导入的书籍"));
+    }
+    Json(ReturnData::ok(json!(file_list)))
+}
+
+/// POST /reader3/file/restore & /file/restore：从备份压缩包恢复数据
+/// body: `{"path": "/backup.zip", "home": "__HOME__"}`
+pub async fn restore(
+    State(state): State<AppState>,
+    Query(params): Query<HashMap<String, String>>,
+    headers: HeaderMap,
+    body: Option<axum::body::Bytes>,
+) -> Json<ReturnData> {
+    let ns = match resolve_namespace(&state, &params, &headers).await {
+        Ok(ns) => ns,
+        Err(ret) => return Json(ret),
+    };
+    let body_json = body.and_then(|b| serde_json::from_slice::<Value>(&b).ok());
+    let home = str_param(&params, body_json.as_ref(), "home");
+    let path = str_param(&params, body_json.as_ref(), "path");
+    let user = state.storage.find_user(&ns).await.ok().flatten();
+    let manager = manager_ok(&state.storage.config, &params, body_json.as_ref());
+    let base = match file_home(
+        &state.storage.config,
+        &ns,
+        &home,
+        false,
+        false,
+        manager,
+        user.as_ref(),
+    ) {
+        Ok(b) => b,
+        Err(ret) => return Json(ret),
+    };
+    let Some(zip_path) = resolve_secure_path(&base, &path) else {
+        return Json(ReturnData::err("文件不存在"));
+    };
+    if !zip_path.is_file() {
+        return Json(ReturnData::err("文件不存在"));
+    }
+    let bytes = match std::fs::read(&zip_path) {
+        Ok(b) => b,
+        Err(e) => {
+            tracing::error!("读取备份压缩包失败 [{}]: {e}", zip_path.display());
+            return Json(ReturnData::err("读取备份文件失败"));
+        }
+    };
+    match state.storage.restore_backup_zip(&ns, &bytes, true).await {
+        Ok(_) => Json(ReturnData::ok(json!(""))),
+        Err(e) => {
+            tracing::error!("restore_backup_zip 失败: {e}");
+            Json(ReturnData::err(format!("恢复失败: {e}")))
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
