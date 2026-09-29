@@ -117,8 +117,8 @@ function sourceTimeText(): string {
   <div class="monitor-page">
     <header class="topbar">
       <div class="brand">
-        <img class="brand-logo" src="/logo.svg" alt="夜读" />
-        <span class="brand-name">夜读<span class="brand-dot">.</span></span>
+        <img class="brand-logo" src="/logo.svg" alt="阅读" />
+        <span class="brand-name">阅读<span class="brand-dot">.</span></span>
       </div>
       <div class="user-area">
         <button class="nav-link" type="button" @click="router.push('/')">{{ t('nav.bookshelf') }}</button>

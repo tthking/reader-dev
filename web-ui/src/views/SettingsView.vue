@@ -1924,7 +1924,7 @@ async function runExportData() {
         <h2 class="card-title">关于</h2>
         <div class="row">
           <span class="row-label">应用</span>
-          <span class="row-value">Reader Dev（夜读）</span>
+          <span class="row-value">Reader Dev（阅读）</span>
         </div>
         <div class="row">
           <span class="row-label">版本</span>

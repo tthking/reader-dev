@@ -8,8 +8,8 @@
             <path d="M19 12H5" /><path d="M11 18l-6-6 6-6" />
           </svg>
         </button>
-        <img class="brand-logo" src="/logo.svg" alt="夜读" />
-        <span class="brand">夜读<em>.</em></span>
+        <img class="brand-logo" src="/logo.svg" alt="阅读" />
+        <span class="brand">阅读<em>.</em></span>
       </template>
       <span class="title">{{ source ? applyHan(source.bookSourceName, hanMode) : '探索' }}</span>
       <template #trailing>

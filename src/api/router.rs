@@ -494,6 +494,15 @@ pub fn router(config: crate::AppConfig, storage: Storage) -> axum::Router {
             post(upload_user_file).layer(axum::extract::DefaultBodyLimit::max(upload_limit)),
         )
         .route("/reader3/login", post(login))
+        // legacy 根路径别名（原版 Java Web 前端直连 /login 等端点）
+        .route("/login", post(login))
+        .route("/getTxtTocRules", get(get_txt_toc_rules).post(get_txt_toc_rules))
+        .route("/saveReplaceRule", post(save_replace_rule))
+        .route("/saveBookmark", post(save_bookmark))
+        .route("/book/saveBookConfig", post(save_book_config))
+        .route("/file/get", get(crate::api::files::get))
+        .route("/getChapterListByRule", get(get_chapter_list_by_rule).post(get_chapter_list_by_rule))
+        .route("/saveFromRemoteSource", post(save_from_remote_source))
         .with_state(state)
 }
 

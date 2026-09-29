@@ -177,8 +177,8 @@ onMounted(async () => {
     <!-- 极简导航：字标 + 页面入口 -->
     <header class="topbar">
       <div class="brand">
-        <img class="brand-logo" src="/logo.svg" alt="夜读" />
-        <span class="brand-name">夜读<span class="brand-dot">.</span></span>
+        <img class="brand-logo" src="/logo.svg" alt="阅读" />
+        <span class="brand-name">阅读<span class="brand-dot">.</span></span>
       </div>
 
       <div class="user-area">

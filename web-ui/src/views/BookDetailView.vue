@@ -1047,8 +1047,8 @@ watch(bookUrl, () => {
         </svg>
         <span>书架</span>
       </button>
-      <img class="brand-logo" src="/logo.svg" alt="夜读" />
-        <span class="brand">夜读<span class="brand-dot">.</span></span>
+      <img class="brand-logo" src="/logo.svg" alt="阅读" />
+        <span class="brand">阅读<span class="brand-dot">.</span></span>
     </header>
 
     <main class="content">

@@ -118,7 +118,7 @@ const visibleLinks = computed(() => {
         </button>
       </template>
       <div class="brand">
-        <img class="brand-logo" src="/logo.svg" alt="夜读" />
+        <img class="brand-logo" src="/logo.svg" alt="阅读" />
         <span class="brand-name">{{ t('brand.name') }}<span class="brand-dot">.</span></span>
       </div>
     </slot>

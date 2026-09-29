@@ -20,7 +20,7 @@ export interface LangDict {
 
 const zh: LangDict = {
   /* ============ 品牌 / 通用 ============ */
-  'brand.name': '夜读',
+  'brand.name': '阅读',
   'common.all': '全部',
   'common.manage': '管理',
   'common.done': '完成',

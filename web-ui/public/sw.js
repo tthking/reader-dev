@@ -1,5 +1,5 @@
 /**
- * 夜读 Reader · Service Worker（PWA 离线壳）——ES Module（main.ts 以 { type: 'module' } 注册）
+ * 阅读 Reader · Service Worker（PWA 离线壳）——ES Module（main.ts 以 { type: 'module' } 注册）
  *
  * 缓存策略（v2，M5）：
  * - 核心壳（导航请求 / 页面 HTML）→ 网络优先 + 缓存回退（保证每次访问尽量拿到最新版本；
