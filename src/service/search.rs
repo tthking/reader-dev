@@ -558,6 +558,14 @@ pub(crate) async fn concurrent_rate_acquire_raw(ns: &str, source_url: &str, rate
     win.acquire().await;
 }
 
+/// 搜索单源 HTTP 超时（秒，READER_SEARCH_TIMEOUT_SECS 环境变量配置，缺省 8s）
+fn search_timeout_secs() -> u64 {
+    std::env::var("READER_SEARCH_TIMEOUT_SECS")
+        .ok()
+        .and_then(|v| v.trim().parse::<u64>().ok())
+        .unwrap_or(8)
+}
+
 /// 执行单个书源搜索；搜索成功（命中 ≥1 条）时记录书源使用统计（use_count+1）
 ///
 /// legacy 对齐：抓取报错时标记运行期失效快照（getInvalidBookSources 600 秒内直接返回），
@@ -656,13 +664,14 @@ async fn search_one_source_impl(
         url,
         post_body.as_deref().unwrap_or("")
     );
+    let timeout_secs = search_timeout_secs();
     // A1 webView：搜索 URL option webView=true 时经浏览器渲染（失败回退 HTTP）
     let resp = if suffix.web_view == Some(true) {
         match crate::service::browser::solve_cf_challenge(
             ns,
             &url,
             &[],
-            15_000,
+            timeout_secs * 1000,
             source.proxy_url.as_deref(),
         )
         .await
@@ -680,7 +689,7 @@ async fn search_one_source_impl(
                         ns,
                         &url,
                         &req_headers,
-                        15,
+                        timeout_secs,
                         post_body.as_deref(),
                         suffix.charset.as_deref(),
                         source.proxy_url.as_deref(),
@@ -692,7 +701,7 @@ async fn search_one_source_impl(
                         ns,
                         &url,
                         &req_headers,
-                        15,
+                        timeout_secs,
                         suffix.charset.as_deref(),
                         source.proxy_url.as_deref(),
                         suffix.retry,
@@ -706,7 +715,7 @@ async fn search_one_source_impl(
             ns,
             &url,
             &req_headers,
-            15,
+            timeout_secs,
             post_body.as_deref(),
             suffix.charset.as_deref(),
             source.proxy_url.as_deref(),
@@ -718,7 +727,7 @@ async fn search_one_source_impl(
             ns,
             &url,
             &req_headers,
-            15,
+            timeout_secs,
             suffix.charset.as_deref(),
             source.proxy_url.as_deref(),
             suffix.retry,

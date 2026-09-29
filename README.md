@@ -196,6 +196,8 @@ READER_APP_WORKDIR=/storage READER_APP_SECURE=true ./reader-dev-linux-x64-musl
 | `READER_AUTO_BACKUP_HOUR` | `3` | 每日自动备份小时 |
 | `READER_LOCAL_BOOK_DIR` | 空 | 本地书监听目录 |
 | `READER_DIR_SCAN_RPS` | `20` | 目录扫描每秒文件系统操作上限（0 不限速，最大 500） |
+| `READER_SEARCH_TIMEOUT_SECS` | `8` | 搜索单源超时秒数（低配服务器建议 5~8，避免死源拖垮并发） |
+| `READER_HTTP_RETRIES` | `2` | HTTP 抓取重试次数（0 不重试） |
 | `READER_LOG_DIR` | 空 | 日志目录（按大小轮转） |
 
 ---
