@@ -1,0 +1,42 @@
+# ---------- 阶段 1：前端构建 ----------
+FROM node:20-slim AS web
+WORKDIR /web
+COPY web-ui/package.json web-ui/package-lock.json* ./
+RUN npm ci
+COPY web-ui ./
+RUN npx vite build
+
+# ---------- 阶段 2：Rust 后端编译 ----------
+FROM rust:1.97-slim AS builder
+WORKDIR /app
+COPY Cargo.toml Cargo.lock ./
+COPY src ./src
+COPY .cargo ./.cargo
+# GAP 176：epub 导出内嵌中文字体
+COPY web-ui/public/fonts ./web-ui/public/fonts
+# rust-embed 编译期嵌入前端
+COPY --from=web /web/dist ./web-ui/dist
+ENV RUSTFLAGS="--cfg reqwest_unstable"
+RUN cargo build --release && strip /app/target/release/reader-dev
+
+# ---------- 阶段 3：超轻量运行时 (仅 ~50MB，无内置浏览器与 Python) ----------
+FROM debian:trixie-slim
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        ca-certificates \
+        tzdata \
+        tini \
+    && rm -rf /var/lib/apt/lists/*
+
+ENV TZ=Asia/Shanghai
+ENV READER_APP_WEB_ROOT=/app/web-ui/dist
+
+# 仅拷贝 Rust 二进制文件与前端静态资源
+COPY --from=builder /app/target/release/reader-dev /usr/local/bin/reader-dev
+COPY --from=builder /app/web-ui/dist /app/web-ui/dist
+
+EXPOSE 8080
+VOLUME ["/data"]
+ENTRYPOINT ["/usr/bin/tini", "--"]
+CMD ["reader-dev"]
