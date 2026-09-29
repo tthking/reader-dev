@@ -204,8 +204,8 @@ pub async fn init(config: &AppConfig) -> Result<Storage> {
         .create_if_missing(true)
         // GAP 96：WAL 模式（并发读写不互斥——默认 DELETE journal 下读会阻塞写/写会阻塞读）
         .journal_mode(sqlx::sqlite::SqliteJournalMode::Wal)
-        // GAP 96：busy_timeout（锁等待 5s，避免并发写瞬时 SQLITE_BUSY 报错）
-        .busy_timeout(std::time::Duration::from_secs(5))
+        // GAP 96：busy_timeout（锁等待 30s，避免大批量书源写入时并发瞬时 SQLITE_BUSY 报错）
+        .busy_timeout(std::time::Duration::from_secs(30))
         // sqlx-sqlite 0.7.4 已知缺陷：语句缓存 + 建表/ALTER 类 DDL 并发时，
         // sqlite 自动重准备后的列数（column_count）与缓存的列元数据不一致 →
         // SqliteRow::current 越界 panic（row.rs:43，见 storage 测试偶发失败）。
@@ -858,6 +858,28 @@ pub async fn init(config: &AppConfig) -> Result<Storage> {
     sqlx::query("UPDATE books SET type = 0 WHERE origin = 'local' AND type = 1")
         .execute(&pool)
         .await?;
+
+    // 关键查询索引（加速 get_book_sources / 书架 / 订阅检索）
+    sqlx::query(
+        "CREATE INDEX IF NOT EXISTS idx_book_sources_ns_order ON book_sources (user_namespace, weight DESC, custom_order, book_source_name)",
+    )
+    .execute(&pool)
+    .await?;
+    sqlx::query(
+        "CREATE INDEX IF NOT EXISTS idx_book_sources_ns_enabled ON book_sources (user_namespace, enabled)",
+    )
+    .execute(&pool)
+    .await?;
+    sqlx::query(
+        "CREATE INDEX IF NOT EXISTS idx_source_subs_ns ON source_subs (user_namespace)",
+    )
+    .execute(&pool)
+    .await?;
+    sqlx::query(
+        "CREATE INDEX IF NOT EXISTS idx_books_ns ON books (user_namespace)",
+    )
+    .execute(&pool)
+    .await?;
 
     tracing::info!("storage initialized at {}", db_path.display());
 

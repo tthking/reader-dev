@@ -149,6 +149,10 @@ impl AppConfig {
         let app = app.layer(crate::middleware::upload_limit::UploadLimitLayer {
             max_mb: self.upload_max_mb,
         });
+        // 全局请求体大小上限（支持导入大体积书源 JSON 与备份）
+        let app = app.layer(axum::extract::DefaultBodyLimit::max(
+            self.upload_max_bytes(),
+        ));
         // 服务监控：请求计数（最外层——413/404/静态资源同样计入）
         let app = app.layer(crate::middleware::stats::StatsLayer);
         let addr = SocketAddr::from(([0, 0, 0, 0], self.port));
