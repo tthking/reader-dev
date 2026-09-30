@@ -498,6 +498,55 @@ pub fn router(config: crate::AppConfig, storage: Storage) -> axum::Router {
             "/reader3/uploadFile",
             post(upload_user_file).layer(axum::extract::DefaultBodyLimit::max(upload_limit)),
         )
+        .route(
+            "/reader3/readRemoteSourceFile",
+            post(read_remote_source_file).get(read_remote_source_file),
+        )
+        .route(
+            "/reader3/getLocalStoreFileList",
+            get(get_local_store_file_list).post(get_local_store_file_list),
+        )
+        .route(
+            "/reader3/getLocalStoreFile",
+            get(get_local_store_file).post(get_local_store_file),
+        )
+        .route(
+            "/reader3/deleteLocalStoreFile",
+            post(delete_local_store_file).get(delete_local_store_file),
+        )
+        .route(
+            "/reader3/deleteLocalStoreFileList",
+            post(delete_local_store_file_list),
+        )
+        .route(
+            "/reader3/uploadFileToLocalStore",
+            post(upload_file_to_local_store)
+                .layer(axum::extract::DefaultBodyLimit::max(upload_limit)),
+        )
+        .route(
+            "/reader3/importFromLocalPathPreview",
+            post(import_from_local_path_preview),
+        )
+        .route(
+            "/reader3/getWebdavFileList",
+            get(get_webdav_file_list).post(get_webdav_file_list),
+        )
+        .route(
+            "/reader3/getWebdavFile",
+            get(get_webdav_file).post(get_webdav_file),
+        )
+        .route(
+            "/reader3/deleteWebdavFile",
+            post(delete_webdav_file).get(delete_webdav_file),
+        )
+        .route(
+            "/reader3/deleteWebdavFileList",
+            post(delete_webdav_file_list),
+        )
+        .route(
+            "/reader3/uploadFileToWebdav",
+            post(upload_file_to_webdav).layer(axum::extract::DefaultBodyLimit::max(upload_limit)),
+        )
         .route("/reader3/login", post(login))
         .route("/reader3/getLicense", get(get_license).post(get_license))
         .route("/reader3/importLicense", post(import_license))
@@ -505,10 +554,87 @@ pub fn router(config: crate::AppConfig, storage: Storage) -> axum::Router {
         .route("/reader3/sendCodeToEmail", post(send_code_to_email))
         // legacy 根路径别名（原版 Java Web 前端直连端点）
         .route("/login", post(login))
+        .route("/logout", post(logout))
+        .route("/getBookshelf", get(get_bookshelf))
+        .route(
+            "/getBookSources",
+            get(get_book_sources).post(get_book_sources),
+        )
+        .route("/getBookSource", get(get_book_source).post(get_book_source))
+        .route("/saveBookSource", post(save_book_source))
+        .route("/saveBookSources", post(save_book_sources))
+        .route("/deleteBookSource", post(delete_book_source))
+        .route("/deleteBookSources", post(delete_book_sources))
+        .route("/deleteAllBookSources", post(delete_all_book_sources))
+        .route("/deleteBookSourcesFile", post(delete_all_book_sources))
+        .route("/deleteUserBookSource", post(delete_user_book_source))
+        .route("/readSourceFile", post(read_source_file))
+        .route(
+            "/readRemoteSourceFile",
+            post(read_remote_source_file).get(read_remote_source_file),
+        )
+        .route(
+            "/setAsDefaultBookSources",
+            post(set_as_default_book_sources),
+        )
+        .route("/getShelfBook", get(get_shelf_book).post(get_shelf_book))
+        .route("/saveBook", post(save_book))
+        .route("/deleteBook", post(delete_book))
+        .route("/deleteBooks", post(delete_books))
+        .route("/getBookInfo", get(get_book_info).post(get_book_info))
+        .route("/getChapterList", get(get_book_toc).post(get_book_toc))
+        .route("/getBookToc", get(get_book_toc).post(get_book_toc))
+        .route(
+            "/getBookContent",
+            get(get_book_content).post(get_book_content),
+        )
+        .route("/saveBookContent", post(save_book_content))
+        .route("/saveBookProgress", post(save_book_progress))
+        .route("/searchBook", get(search_book).post(search_book))
+        .route(
+            "/searchBookMulti",
+            get(search_book_multi).post(search_book_multi),
+        )
+        .route(
+            "/searchBookMultiSSE",
+            get(search_book_multi_sse).post(search_book_multi_sse),
+        )
+        .route(
+            "/searchBookSource",
+            get(search_book_source).post(search_book_source),
+        )
+        .route(
+            "/searchBookSourceSSE",
+            get(search_book_source_sse).post(search_book_source_sse),
+        )
+        .route(
+            "/getAvailableBookSource",
+            get(get_available_book_source).post(get_available_book_source),
+        )
+        .route("/setBookSource", get(set_book_source).post(set_book_source))
+        .route(
+            "/getInvalidBookSources",
+            get(get_invalid_book_sources).post(get_invalid_book_sources),
+        )
+        .route(
+            "/disableInvalidBookSources",
+            post(disable_invalid_book_sources),
+        )
+        .route("/exploreBook", get(explore_book).post(explore_book))
+        .route(
+            "/getExploreSources",
+            get(get_explore_sources).post(get_explore_sources),
+        )
+        .route(
+            "/getExploreUrls",
+            get(get_explore_urls).post(get_explore_urls),
+        )
         .route(
             "/getTxtTocRules",
             get(get_txt_toc_rules).post(get_txt_toc_rules),
         )
+        .route("/saveTxtTocRule", post(save_txt_toc_rule))
+        .route("/deleteTxtTocRule", post(delete_txt_toc_rule))
         .route("/saveReplaceRule", post(save_replace_rule))
         .route("/saveReplaceRules", post(save_replace_rules))
         .route("/deleteReplaceRule", post(delete_replace_rule))
@@ -524,8 +650,101 @@ pub fn router(config: crate::AppConfig, storage: Storage) -> axum::Router {
         .route("/getBookmarks", get(get_bookmarks).post(get_bookmarks))
         .route("/getBookGroups", get(get_book_groups).post(get_book_groups))
         .route("/saveBookGroup", post(save_book_group))
+        .route("/deleteBookGroup", post(delete_book_group))
         .route("/saveBookGroupId", post(save_book_group_id))
+        .route("/addBookGroupMulti", post(add_book_group_multi))
+        .route("/removeBookGroupMulti", post(remove_book_group_multi))
+        .route("/saveBookGroupOrder", post(save_book_group_order))
         .route("/book/saveBookConfig", post(save_book_config))
+        .route("/getRssSources", get(get_rss_sources).post(get_rss_sources))
+        .route("/saveRssSource", post(save_rss_source))
+        .route("/saveRssSources", post(save_rss_sources))
+        .route("/deleteRssSource", post(delete_rss_source))
+        .route(
+            "/getRssArticles",
+            get(get_rss_articles).post(get_rss_articles),
+        )
+        .route("/getRssContent", get(get_rss_article).post(get_rss_article))
+        .route("/markRssArticleRead", post(mark_rss_article_read))
+        .route(
+            "/getLocalStoreFileList",
+            get(get_local_store_file_list).post(get_local_store_file_list),
+        )
+        .route(
+            "/getLocalStoreFile",
+            get(get_local_store_file).post(get_local_store_file),
+        )
+        .route(
+            "/deleteLocalStoreFile",
+            post(delete_local_store_file).get(delete_local_store_file),
+        )
+        .route(
+            "/deleteLocalStoreFileList",
+            post(delete_local_store_file_list),
+        )
+        .route(
+            "/uploadFileToLocalStore",
+            post(upload_file_to_local_store)
+                .layer(axum::extract::DefaultBodyLimit::max(upload_limit)),
+        )
+        .route(
+            "/importFromLocalPathPreview",
+            post(import_from_local_path_preview),
+        )
+        .route(
+            "/getWebdavFileList",
+            get(get_webdav_file_list).post(get_webdav_file_list),
+        )
+        .route("/getWebdavFile", get(get_webdav_file).post(get_webdav_file))
+        .route(
+            "/deleteWebdavFile",
+            post(delete_webdav_file).get(delete_webdav_file),
+        )
+        .route("/deleteWebdavFileList", post(delete_webdav_file_list))
+        .route(
+            "/uploadFileToWebdav",
+            post(upload_file_to_webdav).layer(axum::extract::DefaultBodyLimit::max(upload_limit)),
+        )
+        .route("/restoreFromWebdav", post(restore_from_webdav))
+        .route("/backupToWebdav", post(backup_to_webdav))
+        .route("/getUserInfo", get(get_user_info))
+        .route("/getUserList", get(get_users).post(get_users))
+        .route("/getUsers", get(get_users).post(get_users))
+        .route("/addUser", post(add_user))
+        .route("/updateUser", post(update_user))
+        .route("/deleteUser", post(delete_user))
+        .route("/deleteUsers", post(delete_users))
+        .route("/resetPassword", post(reset_user_password))
+        .route("/getUserConfig", get(get_user_config).post(get_user_config))
+        .route("/saveUserConfig", post(save_user_config))
+        .route(
+            "/uploadFile",
+            post(upload_user_file).layer(axum::extract::DefaultBodyLimit::max(upload_limit)),
+        )
+        .route("/cover", get(book_cover_legacy))
+        .route("/refreshLocalBook", post(refresh_local_book))
+        .route(
+            "/getShelfBookWithCacheInfo",
+            get(get_shelf_book_with_cache_info).post(get_shelf_book_with_cache_info),
+        )
+        .route(
+            "/deleteBookCache",
+            get(delete_book_cache).post(delete_book_cache),
+        )
+        .route("/exportBook", get(export_book).post(export_book))
+        .route(
+            "/searchBookContent",
+            get(search_book_content).post(search_book_content),
+        )
+        .route("/cacheBookSSE", get(cache_book_sse).post(cache_book_sse))
+        .route(
+            "/bookSourceDebugSSE",
+            get(book_source_debug_sse).post(book_source_debug_sse),
+        )
+        .route("/clearCache", post(clear_cache))
+        .route("/getCacheInfo", get(get_cache_info).post(get_cache_info))
+        .route("/getSystemInfo", get(get_system_info))
+        .route("/getServerStats", get(get_server_stats))
         .route("/deleteFile", get(delete_file).post(delete_file))
         .route("/getLicense", get(get_license).post(get_license))
         .route("/importLicense", post(import_license))
@@ -1223,12 +1442,13 @@ async fn save_book_sources(
     let Some(body) = body else {
         return Json(ReturnData::err("参数错误"));
     };
-    let sources: Vec<crate::model::BookSource> = match serde_json::from_slice(&body) {
-        Ok(s) => s,
+    let json: serde_json::Value = match serde_json::from_slice(&body) {
+        Ok(v) => v,
         Err(_) => return Json(ReturnData::err("参数错误")),
     };
-    if sources.iter().any(|s| s.book_source_url.is_empty()) {
-        return Json(ReturnData::err("参数错误"));
+    let sources = crate::model::book_source::normalize_book_sources(json);
+    if sources.is_empty() {
+        return Json(ReturnData::ok(serde_json::json!({ "count": 0 })));
     }
     // F-7 书源数上限：逐条统计新增数（已存在覆盖不计名额），超限整批拒绝
     let urls: Vec<&str> = sources.iter().map(|s| s.book_source_url.as_str()).collect();
@@ -9170,39 +9390,622 @@ async fn read_source_file(
         Ok(ns) => ns,
         Err(ret) => return Json(ret),
     };
-    let body_json = body.and_then(|b| serde_json::from_slice::<serde_json::Value>(&b).ok());
+    let content_type = headers
+        .get(axum::http::header::CONTENT_TYPE)
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("");
+
+    let mut content_opt: Option<String> = None;
+    if content_type.starts_with("multipart/form-data") {
+        if let Some(ref bytes) = body {
+            if let Some(pos) = bytes.windows(4).position(|w| w == b"\r\n\r\n") {
+                let body_part = &bytes[pos + 4..];
+                let end_pos = body_part
+                    .windows(2)
+                    .position(|w| w == b"\r\n")
+                    .unwrap_or(body_part.len());
+                let file_bytes = &body_part[..end_pos];
+                content_opt = String::from_utf8(file_bytes.to_vec()).ok();
+            }
+        }
+    }
+
+    let content = if let Some(c) = content_opt {
+        c
+    } else {
+        let body_json = body
+            .as_ref()
+            .and_then(|b| serde_json::from_slice::<serde_json::Value>(b).ok());
+        let path = param_of(&params, body_json.as_ref(), "path");
+        if path.is_empty() {
+            return Json(ReturnData::err("参数错误"));
+        }
+        // secure：base = 用户子目录（storage/data/{ns}/）；legacy "storage/" 前缀按相对用户目录处理
+        let base = if state.storage.config.secure {
+            state
+                .storage
+                .config
+                .storage_dir()
+                .join("data")
+                .join(&namespace)
+        } else {
+            std::path::PathBuf::from(&state.storage.config.work_dir)
+        };
+        let rel = if state.storage.config.secure {
+            path.trim_start_matches("storage/")
+        } else {
+            path.as_str()
+        };
+        let Some(file) = crate::api::files::resolve_secure_path(&base, rel) else {
+            return Json(ReturnData::err("路径不存在"));
+        };
+        if !file.is_file() {
+            return Json(ReturnData::err("路径不存在"));
+        }
+        match tokio::fs::read_to_string(&file).await {
+            Ok(content) => content,
+            Err(e) => {
+                tracing::error!("readSourceFile 读取失败 [{}]: {e}", file.display());
+                return Json(ReturnData::err("读取失败"));
+            }
+        }
+    };
+    Json(ReturnData::ok(serde_json::json!([content])))
+}
+
+/// POST /reader3/readRemoteSourceFile & /readRemoteSourceFile：读取远程书源内容
+async fn read_remote_source_file(
+    State(_state): State<AppState>,
+    Query(params): Query<HashMap<String, String>>,
+    body: Option<axum::body::Bytes>,
+) -> Json<ReturnData> {
+    let body_json = body
+        .as_ref()
+        .and_then(|b| serde_json::from_slice::<serde_json::Value>(b).ok());
+    let url = param_of(&params, body_json.as_ref(), "url");
+    if url.is_empty() {
+        return Json(ReturnData::err("请输入远程书源链接"));
+    }
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(10))
+        .build()
+        .unwrap_or_default();
+    match client.get(&url).send().await {
+        Ok(resp) => match resp.text().await {
+            Ok(text) => Json(ReturnData::ok(serde_json::json!([text]))),
+            Err(e) => {
+                tracing::error!("readRemoteSourceFile text error [{url}]: {e}");
+                Json(ReturnData::err("远程书源链接错误"))
+            }
+        },
+        Err(e) => {
+            tracing::error!("readRemoteSourceFile fetch error [{url}]: {e}");
+            Json(ReturnData::err("远程书源链接错误"))
+        }
+    }
+}
+
+/// GET+POST /reader3/getLocalStoreFileList & /getLocalStoreFileList：获取本地书仓文件列表
+async fn get_local_store_file_list(
+    State(state): State<AppState>,
+    Query(params): Query<HashMap<String, String>>,
+    headers: HeaderMap,
+    body: Option<axum::body::Bytes>,
+) -> Json<ReturnData> {
+    let _namespace = match resolve_namespace(&state, &params, &headers).await {
+        Ok(ns) => ns,
+        Err(ret) => return Json(ret),
+    };
+    let body_json = body
+        .as_ref()
+        .and_then(|b| serde_json::from_slice::<serde_json::Value>(b).ok());
+    let mut path = param_of(&params, body_json.as_ref(), "path");
+    if path.is_empty() {
+        path = "/".to_string();
+    }
+    let local_store_dir = state.storage.config.storage_dir().join("localStore");
+    if !local_store_dir.exists() {
+        let _ = tokio::fs::create_dir_all(&local_store_dir).await;
+    }
+    let rel_path = path.trim_start_matches('/');
+    let target = if rel_path.is_empty() {
+        local_store_dir.clone()
+    } else {
+        match crate::api::files::resolve_secure_path(&local_store_dir, rel_path) {
+            Some(p) => p,
+            None => return Json(ReturnData::err("路径不存在")),
+        }
+    };
+    if !target.exists() {
+        return Json(ReturnData::err("路径不存在"));
+    }
+    if !target.is_dir() {
+        return Json(ReturnData::err("路径不是目录"));
+    }
+    let mut file_list = Vec::new();
+    let mut entries = match tokio::fs::read_dir(&target).await {
+        Ok(e) => e,
+        Err(_) => return Json(ReturnData::ok(serde_json::json!([]))),
+    };
+    while let Ok(Some(entry)) = entries.next_entry().await {
+        let name = entry.file_name().to_string_lossy().to_string();
+        if name.starts_with('.') {
+            continue;
+        }
+        let metadata = match entry.metadata().await {
+            Ok(m) => m,
+            Err(_) => continue,
+        };
+        let is_dir = metadata.is_dir();
+        let size = if is_dir { 0 } else { metadata.len() };
+        let last_modified = metadata
+            .modified()
+            .ok()
+            .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+            .map(|d| d.as_millis() as u64)
+            .unwrap_or(0);
+        let rel_p = entry
+            .path()
+            .strip_prefix(&local_store_dir)
+            .map(|p| format!("/{}", p.display()))
+            .unwrap_or_else(|_| format!("/{}", name));
+        file_list.push(serde_json::json!({
+            "name": name,
+            "size": size,
+            "path": rel_p,
+            "lastModified": last_modified,
+            "isDirectory": is_dir,
+        }));
+    }
+    Json(ReturnData::ok(serde_json::json!(file_list)))
+}
+
+/// GET+POST /reader3/getLocalStoreFile & /getLocalStoreFile：下载书仓文件
+async fn get_local_store_file(
+    State(state): State<AppState>,
+    Query(params): Query<HashMap<String, String>>,
+    headers: HeaderMap,
+    body: Option<axum::body::Bytes>,
+) -> axum::response::Response {
+    let _namespace = match resolve_namespace(&state, &params, &headers).await {
+        Ok(ns) => ns,
+        Err(ret) => return Json(ret).into_response(),
+    };
+    let body_json = body
+        .as_ref()
+        .and_then(|b| serde_json::from_slice::<serde_json::Value>(b).ok());
+    let path = param_of(&params, body_json.as_ref(), "path");
+    if path.is_empty() {
+        return Json(ReturnData::err("参数错误")).into_response();
+    }
+    let local_store_dir = state.storage.config.storage_dir().join("localStore");
+    let rel_path = path.trim_start_matches('/');
+    let target = match crate::api::files::resolve_secure_path(&local_store_dir, rel_path) {
+        Some(p) => p,
+        None => return Json(ReturnData::err("路径不存在")).into_response(),
+    };
+    if !target.is_file() {
+        return Json(ReturnData::err("路径不存在")).into_response();
+    }
+    match tokio::fs::read(&target).await {
+        Ok(bytes) => {
+            let filename = target.file_name().unwrap_or_default().to_string_lossy();
+            let encoded_fn = urlencoding::encode(&filename);
+            let mut res = bytes.into_response();
+            let disposition = format!("attachment; filename=\"{encoded_fn}\"");
+            if let Ok(v) = disposition.parse() {
+                res.headers_mut()
+                    .insert(axum::http::header::CONTENT_DISPOSITION, v);
+            }
+            if let Ok(v) = "max-age=86400".parse() {
+                res.headers_mut()
+                    .insert(axum::http::header::CACHE_CONTROL, v);
+            }
+            res
+        }
+        Err(e) => {
+            tracing::error!("getLocalStoreFile read error: {e}");
+            Json(ReturnData::err("读取失败")).into_response()
+        }
+    }
+}
+
+/// POST+GET /reader3/deleteLocalStoreFile & /deleteLocalStoreFile：删除书仓文件/目录
+async fn delete_local_store_file(
+    State(state): State<AppState>,
+    Query(params): Query<HashMap<String, String>>,
+    headers: HeaderMap,
+    body: Option<axum::body::Bytes>,
+) -> Json<ReturnData> {
+    let _namespace = match resolve_namespace(&state, &params, &headers).await {
+        Ok(ns) => ns,
+        Err(ret) => return Json(ret),
+    };
+    let body_json = body
+        .as_ref()
+        .and_then(|b| serde_json::from_slice::<serde_json::Value>(b).ok());
     let path = param_of(&params, body_json.as_ref(), "path");
     if path.is_empty() {
         return Json(ReturnData::err("参数错误"));
     }
-    // secure：base = 用户子目录（storage/data/{ns}/）；legacy "storage/" 前缀按相对用户目录处理
-    let base = if state.storage.config.secure {
-        state
-            .storage
-            .config
-            .storage_dir()
-            .join("data")
-            .join(&namespace)
-    } else {
-        std::path::PathBuf::from(&state.storage.config.work_dir)
+    let local_store_dir = state.storage.config.storage_dir().join("localStore");
+    let rel_path = path.trim_start_matches('/');
+    let target = match crate::api::files::resolve_secure_path(&local_store_dir, rel_path) {
+        Some(p) => p,
+        None => return Json(ReturnData::err("路径不存在")),
     };
-    let rel = if state.storage.config.secure {
-        path.trim_start_matches("storage/")
-    } else {
-        path.as_str()
-    };
-    let Some(file) = crate::api::files::resolve_secure_path(&base, rel) else {
-        return Json(ReturnData::err("路径不存在"));
-    };
-    if !file.is_file() {
+    if !target.exists() {
         return Json(ReturnData::err("路径不存在"));
     }
-    match tokio::fs::read_to_string(&file).await {
-        Ok(content) => Json(ReturnData::ok(serde_json::Value::String(content))),
-        Err(e) => {
-            tracing::error!("readSourceFile 读取失败 [{}]: {e}", file.display());
-            Json(ReturnData::err("读取失败"))
+    if target.is_dir() {
+        let _ = tokio::fs::remove_dir_all(&target).await;
+    } else {
+        let _ = tokio::fs::remove_file(&target).await;
+    }
+    Json(ReturnData::ok(serde_json::Value::String(String::new())))
+}
+
+/// POST /reader3/deleteLocalStoreFileList & /deleteLocalStoreFileList：批量删除书仓文件
+async fn delete_local_store_file_list(
+    State(state): State<AppState>,
+    Query(params): Query<HashMap<String, String>>,
+    headers: HeaderMap,
+    body: Option<axum::body::Bytes>,
+) -> Json<ReturnData> {
+    let _namespace = match resolve_namespace(&state, &params, &headers).await {
+        Ok(ns) => ns,
+        Err(ret) => return Json(ret),
+    };
+    let body_json = body
+        .as_ref()
+        .and_then(|b| serde_json::from_slice::<serde_json::Value>(b).ok());
+    let local_store_dir = state.storage.config.storage_dir().join("localStore");
+    if let Some(paths) = body_json.and_then(|v| v.get("path").and_then(|p| p.as_array().cloned())) {
+        for p in paths {
+            if let Some(p_str) = p.as_str() {
+                let rel = p_str.trim_start_matches('/');
+                if let Some(target) = crate::api::files::resolve_secure_path(&local_store_dir, rel)
+                {
+                    if target.is_dir() {
+                        let _ = tokio::fs::remove_dir_all(&target).await;
+                    } else if target.is_file() {
+                        let _ = tokio::fs::remove_file(&target).await;
+                    }
+                }
+            }
         }
+    }
+    Json(ReturnData::ok(serde_json::Value::String(String::new())))
+}
+
+/// POST /reader3/uploadFileToLocalStore & /uploadFileToLocalStore：上传文件到书仓
+async fn upload_file_to_local_store(
+    State(state): State<AppState>,
+    Query(params): Query<HashMap<String, String>>,
+    headers: HeaderMap,
+    mut multipart: axum::extract::Multipart,
+) -> Json<ReturnData> {
+    let _namespace = match resolve_namespace(&state, &params, &headers).await {
+        Ok(ns) => ns,
+        Err(ret) => return Json(ret),
+    };
+    let path = params.get("path").cloned().unwrap_or_default();
+    let local_store_dir = state.storage.config.storage_dir().join("localStore");
+    let target_dir = if path.is_empty() || path == "/" {
+        local_store_dir.clone()
+    } else {
+        match crate::api::files::resolve_secure_path(&local_store_dir, path.trim_start_matches('/'))
+        {
+            Some(p) => p,
+            None => local_store_dir.clone(),
+        }
+    };
+    let _ = tokio::fs::create_dir_all(&target_dir).await;
+
+    let max_bytes = state.storage.config.upload_max_bytes();
+    let max_mb = state.storage.config.upload_max_mb;
+    let mut uploaded = false;
+    loop {
+        match multipart.next_field().await {
+            Ok(Some(mut field)) => {
+                let file_name = field.file_name().unwrap_or("file").to_string();
+                if let Ok(bytes) = read_multipart_field_limited(&mut field, max_bytes, max_mb).await
+                {
+                    let file_path = target_dir.join(&file_name);
+                    if tokio::fs::write(&file_path, bytes).await.is_ok() {
+                        uploaded = true;
+                    }
+                }
+            }
+            Ok(None) => break,
+            Err(_) => break,
+        }
+    }
+    if uploaded {
+        Json(ReturnData::ok(serde_json::Value::String(String::new())))
+    } else {
+        Json(ReturnData::err("上传失败"))
+    }
+}
+
+/// POST /reader3/importFromLocalPathPreview & /importFromLocalPathPreview：从本地书仓/webdav导入预览
+async fn import_from_local_path_preview(
+    state: State<AppState>,
+    query: Query<HashMap<String, String>>,
+    headers: HeaderMap,
+    body: Option<axum::body::Bytes>,
+) -> Json<ReturnData> {
+    crate::api::files::import_preview(state, query, headers, body).await
+}
+
+/// GET+POST /reader3/getWebdavFileList & /getWebdavFileList：获取 WebDAV 备份文件列表
+async fn get_webdav_file_list(
+    State(state): State<AppState>,
+    Query(params): Query<HashMap<String, String>>,
+    headers: HeaderMap,
+    body: Option<axum::body::Bytes>,
+) -> Json<ReturnData> {
+    let namespace = match resolve_namespace(&state, &params, &headers).await {
+        Ok(ns) => ns,
+        Err(ret) => return Json(ret),
+    };
+    let body_json = body
+        .as_ref()
+        .and_then(|b| serde_json::from_slice::<serde_json::Value>(b).ok());
+    let mut path = param_of(&params, body_json.as_ref(), "path");
+    if path.is_empty() {
+        path = "/".to_string();
+    }
+    let webdav_dir = state
+        .storage
+        .config
+        .storage_dir()
+        .join("data")
+        .join(&namespace)
+        .join("webdav");
+    if !webdav_dir.exists() {
+        let _ = tokio::fs::create_dir_all(&webdav_dir).await;
+    }
+    let rel_path = path.trim_start_matches('/');
+    let target = if rel_path.is_empty() {
+        webdav_dir.clone()
+    } else {
+        match crate::api::files::resolve_secure_path(&webdav_dir, rel_path) {
+            Some(p) => p,
+            None => return Json(ReturnData::err("路径不存在")),
+        }
+    };
+    if !target.exists() {
+        return Json(ReturnData::err("路径不存在"));
+    }
+    if !target.is_dir() {
+        return Json(ReturnData::err("路径不是目录"));
+    }
+    let mut file_list = Vec::new();
+    let mut entries = match tokio::fs::read_dir(&target).await {
+        Ok(e) => e,
+        Err(_) => return Json(ReturnData::ok(serde_json::json!([]))),
+    };
+    while let Ok(Some(entry)) = entries.next_entry().await {
+        let name = entry.file_name().to_string_lossy().to_string();
+        if name.starts_with('.') {
+            continue;
+        }
+        let metadata = match entry.metadata().await {
+            Ok(m) => m,
+            Err(_) => continue,
+        };
+        let is_dir = metadata.is_dir();
+        let size = if is_dir { 0 } else { metadata.len() };
+        let last_modified = metadata
+            .modified()
+            .ok()
+            .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+            .map(|d| d.as_millis() as u64)
+            .unwrap_or(0);
+        let rel_p = entry
+            .path()
+            .strip_prefix(&webdav_dir)
+            .map(|p| format!("/{}", p.display()))
+            .unwrap_or_else(|_| format!("/{}", name));
+        file_list.push(serde_json::json!({
+            "name": name,
+            "size": size,
+            "path": rel_p,
+            "lastModified": last_modified,
+            "isDirectory": is_dir,
+        }));
+    }
+    Json(ReturnData::ok(serde_json::json!(file_list)))
+}
+
+/// GET+POST /reader3/getWebdavFile & /getWebdavFile：下载 WebDAV 文件
+async fn get_webdav_file(
+    State(state): State<AppState>,
+    Query(params): Query<HashMap<String, String>>,
+    headers: HeaderMap,
+    body: Option<axum::body::Bytes>,
+) -> axum::response::Response {
+    let namespace = match resolve_namespace(&state, &params, &headers).await {
+        Ok(ns) => ns,
+        Err(ret) => return Json(ret).into_response(),
+    };
+    let body_json = body
+        .as_ref()
+        .and_then(|b| serde_json::from_slice::<serde_json::Value>(b).ok());
+    let path = param_of(&params, body_json.as_ref(), "path");
+    if path.is_empty() {
+        return Json(ReturnData::err("参数错误")).into_response();
+    }
+    let webdav_dir = state
+        .storage
+        .config
+        .storage_dir()
+        .join("data")
+        .join(&namespace)
+        .join("webdav");
+    let rel_path = path.trim_start_matches('/');
+    let target = match crate::api::files::resolve_secure_path(&webdav_dir, rel_path) {
+        Some(p) => p,
+        None => return Json(ReturnData::err("路径不存在")).into_response(),
+    };
+    if !target.is_file() {
+        return Json(ReturnData::err("路径不存在")).into_response();
+    }
+    match tokio::fs::read(&target).await {
+        Ok(bytes) => {
+            let filename = target.file_name().unwrap_or_default().to_string_lossy();
+            let encoded_fn = urlencoding::encode(&filename);
+            let mut res = bytes.into_response();
+            let disposition = format!("attachment; filename=\"{encoded_fn}\"");
+            if let Ok(v) = disposition.parse() {
+                res.headers_mut()
+                    .insert(axum::http::header::CONTENT_DISPOSITION, v);
+            }
+            if let Ok(v) = "max-age=86400".parse() {
+                res.headers_mut()
+                    .insert(axum::http::header::CACHE_CONTROL, v);
+            }
+            res
+        }
+        Err(e) => {
+            tracing::error!("getWebdavFile read error: {e}");
+            Json(ReturnData::err("读取失败")).into_response()
+        }
+    }
+}
+
+/// POST+GET /reader3/deleteWebdavFile & /deleteWebdavFile：删除 WebDAV 文件/目录
+async fn delete_webdav_file(
+    State(state): State<AppState>,
+    Query(params): Query<HashMap<String, String>>,
+    headers: HeaderMap,
+    body: Option<axum::body::Bytes>,
+) -> Json<ReturnData> {
+    let namespace = match resolve_namespace(&state, &params, &headers).await {
+        Ok(ns) => ns,
+        Err(ret) => return Json(ret),
+    };
+    let body_json = body
+        .as_ref()
+        .and_then(|b| serde_json::from_slice::<serde_json::Value>(b).ok());
+    let path = param_of(&params, body_json.as_ref(), "path");
+    if path.is_empty() {
+        return Json(ReturnData::err("参数错误"));
+    }
+    let webdav_dir = state
+        .storage
+        .config
+        .storage_dir()
+        .join("data")
+        .join(&namespace)
+        .join("webdav");
+    let rel_path = path.trim_start_matches('/');
+    let target = match crate::api::files::resolve_secure_path(&webdav_dir, rel_path) {
+        Some(p) => p,
+        None => return Json(ReturnData::err("路径不存在")),
+    };
+    if !target.exists() {
+        return Json(ReturnData::err("路径不存在"));
+    }
+    if target.is_dir() {
+        let _ = tokio::fs::remove_dir_all(&target).await;
+    } else {
+        let _ = tokio::fs::remove_file(&target).await;
+    }
+    Json(ReturnData::ok(serde_json::Value::String(String::new())))
+}
+
+/// POST /reader3/deleteWebdavFileList & /deleteWebdavFileList：批量删除 WebDAV 文件
+async fn delete_webdav_file_list(
+    State(state): State<AppState>,
+    Query(params): Query<HashMap<String, String>>,
+    headers: HeaderMap,
+    body: Option<axum::body::Bytes>,
+) -> Json<ReturnData> {
+    let namespace = match resolve_namespace(&state, &params, &headers).await {
+        Ok(ns) => ns,
+        Err(ret) => return Json(ret),
+    };
+    let body_json = body
+        .as_ref()
+        .and_then(|b| serde_json::from_slice::<serde_json::Value>(b).ok());
+    let webdav_dir = state
+        .storage
+        .config
+        .storage_dir()
+        .join("data")
+        .join(&namespace)
+        .join("webdav");
+    if let Some(paths) = body_json.and_then(|v| v.get("path").and_then(|p| p.as_array().cloned())) {
+        for p in paths {
+            if let Some(p_str) = p.as_str() {
+                let rel = p_str.trim_start_matches('/');
+                if let Some(target) = crate::api::files::resolve_secure_path(&webdav_dir, rel) {
+                    if target.is_dir() {
+                        let _ = tokio::fs::remove_dir_all(&target).await;
+                    } else if target.is_file() {
+                        let _ = tokio::fs::remove_file(&target).await;
+                    }
+                }
+            }
+        }
+    }
+    Json(ReturnData::ok(serde_json::Value::String(String::new())))
+}
+
+/// POST /reader3/uploadFileToWebdav & /uploadFileToWebdav：上传文件到 WebDAV
+async fn upload_file_to_webdav(
+    State(state): State<AppState>,
+    Query(params): Query<HashMap<String, String>>,
+    headers: HeaderMap,
+    mut multipart: axum::extract::Multipart,
+) -> Json<ReturnData> {
+    let namespace = match resolve_namespace(&state, &params, &headers).await {
+        Ok(ns) => ns,
+        Err(ret) => return Json(ret),
+    };
+    let path = params.get("path").cloned().unwrap_or_default();
+    let webdav_dir = state
+        .storage
+        .config
+        .storage_dir()
+        .join("data")
+        .join(&namespace)
+        .join("webdav");
+    let target_dir = if path.is_empty() || path == "/" {
+        webdav_dir.clone()
+    } else {
+        match crate::api::files::resolve_secure_path(&webdav_dir, path.trim_start_matches('/')) {
+            Some(p) => p,
+            None => webdav_dir.clone(),
+        }
+    };
+    let _ = tokio::fs::create_dir_all(&target_dir).await;
+
+    let max_bytes = state.storage.config.upload_max_bytes();
+    let max_mb = state.storage.config.upload_max_mb;
+    let mut uploaded = false;
+    loop {
+        match multipart.next_field().await {
+            Ok(Some(mut field)) => {
+                let file_name = field.file_name().unwrap_or("file").to_string();
+                if let Ok(bytes) = read_multipart_field_limited(&mut field, max_bytes, max_mb).await
+                {
+                    let file_path = target_dir.join(&file_name);
+                    if tokio::fs::write(&file_path, bytes).await.is_ok() {
+                        uploaded = true;
+                    }
+                }
+            }
+            Ok(None) => break,
+            Err(_) => break,
+        }
+    }
+    if uploaded {
+        Json(ReturnData::ok(serde_json::Value::String(String::new())))
+    } else {
+        Json(ReturnData::err("上传失败"))
     }
 }
 
@@ -12192,7 +12995,7 @@ mod tests {
         )
         .await;
         assert!(ret.0.is_success, "{}", ret.0.error_msg);
-        assert_eq!(ret.0.data, json!(r#"{"bookSourceUrl":"https://x.com"}"#));
+        assert_eq!(ret.0.data, json!([r#"{"bookSourceUrl":"https://x.com"}"#]));
 
         // 穿越/绝对路径拒绝（解析不出 → 路径不存在）
         let body = Bytes::from(r#"{"path":"../escape.json"}"#);
@@ -12264,7 +13067,7 @@ mod tests {
             "secure 用户目录内应可读: {}",
             ret.0.error_msg
         );
-        assert_eq!(ret.0.data, json!("[secure]"));
+        assert_eq!(ret.0.data, json!(["[secure]"]));
         let body = Bytes::from(r#"{"path":"work-only.txt"}"#);
         std::fs::write(dir.join("work-only.txt"), "outside").unwrap();
         let ret = read_source_file(
@@ -12326,7 +13129,7 @@ mod tests {
             "用户目录内相对路径应可读: {}",
             ret.0.error_msg
         );
-        assert_eq!(ret.0.data, json!("mine"));
+        assert_eq!(ret.0.data, json!(["mine"]));
         cleanup(state, dir).await;
     }
 

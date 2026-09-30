@@ -153,6 +153,10 @@ impl AppConfig {
         let app = app.layer(axum::extract::DefaultBodyLimit::max(
             self.upload_max_bytes(),
         ));
+        // URL 路径归一化（重写 /sources/reader3/* 解决前端子路由叠加）
+        let app = app.layer(axum::middleware::from_fn(
+            crate::middleware::normalize_path::normalize_reader_path,
+        ));
         // 服务监控：请求计数（最外层——413/404/静态资源同样计入）
         let app = app.layer(crate::middleware::stats::StatsLayer);
         let addr = SocketAddr::from(([0, 0, 0, 0], self.port));

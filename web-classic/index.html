@@ -30,6 +30,13 @@
         return decodeURIComponent(window.location.search.replace(new RegExp('^(?:.*' + (first ? '?' : '') + '[&\\?]' + encodeURI(sVar).replace(/[\.\+\*]/g, '\\$&') + '(?:\\=([^&]*))?)?.*$', 'i'), '$1'));
       }
 
+      try {
+        var _p = localStorage.getItem("api_prefix");
+        if (_p && (_p.indexOf("/sources") !== -1 || _p.indexOf("/bookmarks") !== -1 || _p.indexOf("/replace") !== -1 || _p.indexOf("/book") !== -1)) {
+          localStorage.removeItem("api_prefix");
+        }
+      } catch (e) {}
+
       window.onerror = function() {
         if (window.getQueryString('debug')) {
           alert(JSON.stringify(arguments));

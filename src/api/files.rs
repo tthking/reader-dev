@@ -1081,7 +1081,21 @@ pub async fn import_preview(
     let mut file_list = Vec::new();
 
     for p_str in paths {
-        let Some(file_path) = resolve_secure_path(&base, &p_str) else {
+        let file_path = if let Some(p) = resolve_secure_path(&base, &p_str) {
+            p
+        } else if let Some(p) = resolve_secure_path(&storage_root.join("localStore"), &p_str) {
+            p
+        } else if let Some(p) =
+            resolve_secure_path(&storage_root.join("data").join(&ns).join("webdav"), &p_str)
+        {
+            p
+        } else if let Some(p) =
+            resolve_secure_path(&storage_root.join("data").join(&ns).join("books"), &p_str)
+        {
+            p
+        } else if let Some(p) = resolve_secure_path(&storage_root, &p_str) {
+            p
+        } else {
             continue;
         };
         if !file_path.is_file() {
