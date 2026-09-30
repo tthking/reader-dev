@@ -182,10 +182,7 @@ pub fn router(config: crate::AppConfig, storage: Storage) -> axum::Router {
             "/reader3/file/importPreview",
             post(crate::api::files::import_preview),
         )
-        .route(
-            "/reader3/file/restore",
-            post(crate::api::files::restore),
-        )
+        .route("/reader3/file/restore", post(crate::api::files::restore))
         .route("/reader3/deleteBook", post(delete_book))
         .route("/reader3/saveBook", post(save_book))
         .route("/reader3/saveBookProgress", post(save_book_progress))
@@ -508,12 +505,18 @@ pub fn router(config: crate::AppConfig, storage: Storage) -> axum::Router {
         .route("/reader3/sendCodeToEmail", post(send_code_to_email))
         // legacy 根路径别名（原版 Java Web 前端直连端点）
         .route("/login", post(login))
-        .route("/getTxtTocRules", get(get_txt_toc_rules).post(get_txt_toc_rules))
+        .route(
+            "/getTxtTocRules",
+            get(get_txt_toc_rules).post(get_txt_toc_rules),
+        )
         .route("/saveReplaceRule", post(save_replace_rule))
         .route("/saveReplaceRules", post(save_replace_rules))
         .route("/deleteReplaceRule", post(delete_replace_rule))
         .route("/deleteReplaceRules", post(delete_replace_rules))
-        .route("/getReplaceRules", get(get_replace_rules).post(get_replace_rules))
+        .route(
+            "/getReplaceRules",
+            get(get_replace_rules).post(get_replace_rules),
+        )
         .route("/saveBookmark", post(save_bookmark))
         .route("/saveBookmarks", post(save_bookmarks))
         .route("/deleteBookmark", post(delete_bookmark))
@@ -549,13 +552,16 @@ pub fn router(config: crate::AppConfig, storage: Storage) -> axum::Router {
                 .layer(axum::extract::DefaultBodyLimit::max(upload_limit)),
         )
         .route("/file/delete", post(crate::api::files::delete))
+        .route("/file/deleteMulti", post(crate::api::files::delete_multi))
         .route(
-            "/file/deleteMulti",
-            post(crate::api::files::delete_multi),
+            "/file/importPreview",
+            post(crate::api::files::import_preview),
         )
-        .route("/file/importPreview", post(crate::api::files::import_preview))
         .route("/file/restore", post(crate::api::files::restore))
-        .route("/getChapterListByRule", get(get_chapter_list_by_rule).post(get_chapter_list_by_rule))
+        .route(
+            "/getChapterListByRule",
+            get(get_chapter_list_by_rule).post(get_chapter_list_by_rule),
+        )
         .route("/saveFromRemoteSource", post(save_from_remote_source))
         .with_state(state)
 }
@@ -5165,11 +5171,18 @@ async fn delete_bookmarks(
         let mut total = 0u64;
         for item in arr {
             let name = item.get("bookName").and_then(|v| v.as_str()).unwrap_or("");
-            let author = item.get("bookAuthor").and_then(|v| v.as_str()).unwrap_or("");
+            let author = item
+                .get("bookAuthor")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
             let url = item.get("bookUrl").and_then(|v| v.as_str()).unwrap_or("");
             let title = item.get("title").and_then(|v| v.as_str()).unwrap_or("");
             if !name.is_empty() || !author.is_empty() {
-                if let Ok(c) = state.storage.delete_bookmark_by_name_author(&namespace, name, author).await {
+                if let Ok(c) = state
+                    .storage
+                    .delete_bookmark_by_name_author(&namespace, name, author)
+                    .await
+                {
                     total += c;
                 }
             } else if !url.is_empty() && !title.is_empty() {
@@ -10106,10 +10119,7 @@ async fn import_default_txt_toc_rules(
 // ---------------- 查看/导入授权信息 ----------------
 
 /// GET /reader3/getLicense & /getLicense：查看授权信息（开源版本返回全功能永久授权）
-async fn get_license(
-    State(_state): State<AppState>,
-    headers: HeaderMap,
-) -> Json<ReturnData> {
+async fn get_license(State(_state): State<AppState>, headers: HeaderMap) -> Json<ReturnData> {
     let host = headers
         .get("host")
         .and_then(|v| v.to_str().ok())
@@ -10125,16 +10135,15 @@ async fn get_license(
 }
 
 /// POST /reader3/importLicense & /importLicense：更新密钥
-async fn import_license(
-    State(state): State<AppState>,
-    headers: HeaderMap,
-) -> Json<ReturnData> {
+async fn import_license(State(state): State<AppState>, headers: HeaderMap) -> Json<ReturnData> {
     get_license(State(state), headers).await
 }
 
 /// POST /reader3/supplyLicense & /supplyLicense：申请试用（兼容端点）
 async fn supply_license() -> Json<ReturnData> {
-    Json(ReturnData::ok(serde_json::json!({ "key": "FREE-PERMANENT-LICENSE" })))
+    Json(ReturnData::ok(
+        serde_json::json!({ "key": "FREE-PERMANENT-LICENSE" }),
+    ))
 }
 
 /// POST /reader3/sendCodeToEmail & /sendCodeToEmail：发送邮箱验证码（兼容端点）

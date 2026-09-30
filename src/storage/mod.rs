@@ -870,16 +870,12 @@ pub async fn init(config: &AppConfig) -> Result<Storage> {
     )
     .execute(&pool)
     .await?;
-    sqlx::query(
-        "CREATE INDEX IF NOT EXISTS idx_source_subs_ns ON source_subs (user_namespace)",
-    )
-    .execute(&pool)
-    .await?;
-    sqlx::query(
-        "CREATE INDEX IF NOT EXISTS idx_books_ns ON books (user_namespace)",
-    )
-    .execute(&pool)
-    .await?;
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_source_subs_ns ON source_subs (user_namespace)")
+        .execute(&pool)
+        .await?;
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_books_ns ON books (user_namespace)")
+        .execute(&pool)
+        .await?;
 
     tracing::info!("storage initialized at {}", db_path.display());
 
@@ -3473,11 +3469,13 @@ impl Storage {
 
     /// 删除替换规则（按 id 或 name，仅限本命名空间）；返回受影响行数
     pub async fn delete_replace_rule(&self, ns: &str, id: &str) -> Result<u64> {
-        let r = sqlx::query("DELETE FROM replace_rules WHERE user_namespace = ?1 AND (id = ?2 OR name = ?2)")
-            .bind(ns)
-            .bind(id)
-            .execute(&self.pool)
-            .await?;
+        let r = sqlx::query(
+            "DELETE FROM replace_rules WHERE user_namespace = ?1 AND (id = ?2 OR name = ?2)",
+        )
+        .bind(ns)
+        .bind(id)
+        .execute(&self.pool)
+        .await?;
         Ok(r.rows_affected())
     }
 

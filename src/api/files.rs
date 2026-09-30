@@ -1060,7 +1060,9 @@ pub async fn import_preview(
     let paths: Vec<String> = match &body_json {
         Some(Value::Object(obj)) => {
             if let Some(arr) = obj.get("path").and_then(|v| v.as_array()) {
-                arr.iter().filter_map(|v| v.as_str().map(|s| s.to_string())).collect()
+                arr.iter()
+                    .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                    .collect()
             } else if let Some(s) = obj.get("path").and_then(|v| v.as_str()) {
                 vec![s.to_string()]
             } else {
@@ -1085,7 +1087,10 @@ pub async fn import_preview(
         if !file_path.is_file() {
             continue;
         }
-        let fname = file_path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+        let fname = file_path
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_default();
         let ext = crate::service::local_book::file_ext(&fname);
         if !BOOK_EXTS.contains(&ext.as_str()) {
             continue;
@@ -1114,22 +1119,8 @@ pub async fn import_preview(
             }
         };
 
-        let (bname, bauthor) = crate::service::local_book::analyze_name_author(&fname);
-        let display_name = if !imported.meta.title.is_empty() {
-            imported.meta.title.clone()
-        } else if !bname.is_empty() {
-            bname
-        } else {
-            std::path::Path::new(&fname)
-                .file_stem()
-                .map(|s| s.to_string_lossy().into_owned())
-                .unwrap_or(fname.clone())
-        };
-        let author = if !imported.meta.author.is_empty() {
-            imported.meta.author.clone()
-        } else {
-            bauthor
-        };
+        let (display_name, author) =
+            crate::api::router::local_book_display_meta(&fname, &ext, &imported);
 
         let chapters_json: Vec<Value> = imported
             .chapters
@@ -1139,7 +1130,7 @@ pub async fn import_preview(
                 json!({
                     "index": idx,
                     "title": ch.title,
-                    "url": ch.url,
+                    "url": format!("{fname}#{idx}"),
                 })
             })
             .collect();
